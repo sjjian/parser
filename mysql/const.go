@@ -30,9 +30,18 @@ var (
 	// TiDBReleaseVersion is initialized by (git describe --tags) in Makefile.
 	TiDBReleaseVersion = "None"
 
+	// CustomizedReleaseVersion is initialized by (your definition) in Makefile.
+	CustomizedReleaseVersion = "None"
+
 	// ServerVersion is the version information of this tidb-server in MySQL's format.
 	ServerVersion = fmt.Sprintf("5.7.25-TiDB-%s", TiDBReleaseVersion)
 )
+
+func init() {
+	if CustomizedReleaseVersion != "None" {
+		ServerVersion = fmt.Sprintf("5.7.25-%s", CustomizedReleaseVersion)
+	}
+}
 
 // Header information.
 const (
@@ -227,8 +236,9 @@ const (
 // MaxTypeSetMembers is the number of set members.
 const MaxTypeSetMembers = 64
 
-// PWDHashLen is the length of password's hash.
-const PWDHashLen = 40
+// PWDHashLen is the length of mysql_native_password's hash.
+const PWDHashLen = 40 // excluding the '*'
+const SHAPWDHashLen = 70
 
 // Command2Str is the command information to command name.
 var Command2Str = map[byte]string{

@@ -14,8 +14,9 @@
 package ast
 
 import (
-	"github.com/pingcap/errors"
+	"strings"
 
+	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/auth"
 	"github.com/pingcap/parser/format"
 	"github.com/pingcap/parser/model"
@@ -284,8 +285,18 @@ func (n *TableName) restoreName(ctx *format.RestoreCtx) {
 		ctx.WriteName(n.Schema.String())
 		ctx.WritePlain(".")
 	} else if ctx.DefaultDB != "" {
-		ctx.WriteName(ctx.DefaultDB)
-		ctx.WritePlain(".")
+		// Try CTE, for a CTE table name, we shouldn't write the database name.
+		ok := false
+		for _, name := range ctx.CTENames {
+			if strings.EqualFold(name, n.Name.String()) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			ctx.WriteName(ctx.DefaultDB)
+			ctx.WritePlain(".")
+		}
 	}
 	ctx.WriteName(n.Name.String())
 }
@@ -417,6 +428,13 @@ func (n *TableName) Accept(v Visitor) (Node, bool) {
 			return n, false
 		}
 		n.TableSample = newTs.(*TableSample)
+	}
+	if n.AsOf != nil {
+		newNode, skipChildren := n.AsOf.Accept(v)
+		if skipChildren {
+			return v.Leave(n)
+		}
+		n.AsOf = newNode.(*AsOfClause)
 	}
 	return v.Leave(n)
 }
@@ -1095,6 +1113,11 @@ func (n *WithClause) Restore(ctx *format.RestoreCtx) error {
 			ctx.WritePlain(", ")
 		}
 		ctx.WriteName(cte.Name.String())
+		if n.IsRecursive {
+			// If the CTE is recursive, we should make it visible for the CTE's query.
+			// Otherwise, we should put it to stack after building the CTE's query.
+			ctx.CTENames = append(ctx.CTENames, cte.Name.L)
+		}
 		if len(cte.ColNameList) > 0 {
 			ctx.WritePlain(" (")
 			for j, name := range cte.ColNameList {
@@ -1109,6 +1132,9 @@ func (n *WithClause) Restore(ctx *format.RestoreCtx) error {
 		err := cte.Query.Restore(ctx)
 		if err != nil {
 			return err
+		}
+		if !n.IsRecursive {
+			ctx.CTENames = append(ctx.CTENames, cte.Name.L)
 		}
 	}
 	ctx.WritePlain(" ")
@@ -1134,6 +1160,10 @@ func (n *WithClause) Accept(v Visitor) (Node, bool) {
 // Restore implements Node interface.
 func (n *SelectStmt) Restore(ctx *format.RestoreCtx) error {
 	if n.WithBeforeBraces {
+		l := len(ctx.CTENames)
+		defer func() {
+			ctx.CTENames = ctx.CTENames[:l]
+		}()
 		err := n.With.Restore(ctx)
 		if err != nil {
 			return err
@@ -1422,6 +1452,10 @@ type SetOprSelectList struct {
 // Restore implements Node interface.
 func (n *SetOprSelectList) Restore(ctx *format.RestoreCtx) error {
 	if n.With != nil {
+		l := len(ctx.CTENames)
+		defer func() {
+			ctx.CTENames = ctx.CTENames[:l]
+		}()
 		if err := n.With.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore SetOprSelectList.With")
 		}
@@ -1510,6 +1544,7 @@ func (s *SetOprType) String() string {
 type SetOprStmt struct {
 	dmlNode
 
+	IsInBraces bool
 	SelectList *SetOprSelectList
 	OrderBy    *OrderByClause
 	Limit      *Limit
@@ -1521,9 +1556,19 @@ func (*SetOprStmt) resultSet() {}
 // Restore implements Node interface.
 func (n *SetOprStmt) Restore(ctx *format.RestoreCtx) error {
 	if n.With != nil {
+		l := len(ctx.CTENames)
+		defer func() {
+			ctx.CTENames = ctx.CTENames[:l]
+		}()
 		if err := n.With.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore UnionStmt.With")
 		}
+	}
+	if n.IsInBraces {
+		ctx.WritePlain("(")
+		defer func() {
+			ctx.WritePlain(")")
+		}()
 	}
 
 	if err := n.SelectList.Restore(ctx); err != nil {
@@ -2096,6 +2141,10 @@ type DeleteStmt struct {
 // Restore implements Node interface.
 func (n *DeleteStmt) Restore(ctx *format.RestoreCtx) error {
 	if n.With != nil {
+		l := len(ctx.CTENames)
+		defer func() {
+			ctx.CTENames = ctx.CTENames[:l]
+		}()
 		err := n.With.Restore(ctx)
 		if err != nil {
 			return err
@@ -2256,6 +2305,10 @@ type UpdateStmt struct {
 // Restore implements Node interface.
 func (n *UpdateStmt) Restore(ctx *format.RestoreCtx) error {
 	if n.With != nil {
+		l := len(ctx.CTENames)
+		defer func() {
+			ctx.CTENames = ctx.CTENames[:l]
+		}()
 		err := n.With.Restore(ctx)
 		if err != nil {
 			return err
@@ -2450,6 +2503,7 @@ const (
 	ShowCreateView
 	ShowCreateUser
 	ShowCreateSequence
+	ShowCreatePlacementPolicy
 	ShowGrants
 	ShowTriggers
 	ShowProcedureStatus
@@ -2482,6 +2536,10 @@ const (
 	ShowRestores
 	ShowImports
 	ShowCreateImport
+	ShowPlacement
+	ShowPlacementForDatabase
+	ShowPlacementForTable
+	ShowPlacementForPartition
 )
 
 const (
@@ -2505,6 +2563,7 @@ type ShowStmt struct {
 	Tp          ShowStmtType // Databases/Tables/Columns/....
 	DBName      string
 	Table       *TableName  // Used for showing columns.
+	Partition   model.CIStr // Used for showing partition.
 	Column      *ColumnName // Used for `desc table column`.
 	IndexName   model.CIStr
 	Flag        int // Some flag parsed from sql, such as FULL.
@@ -2583,6 +2642,9 @@ func (n *ShowStmt) Restore(ctx *format.RestoreCtx) error {
 		if err := n.Table.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore ShowStmt.SEQUENCE")
 		}
+	case ShowCreatePlacementPolicy:
+		ctx.WriteKeyWord("CREATE PLACEMENT POLICY ")
+		ctx.WriteName(n.DBName)
 	case ShowCreateUser:
 		ctx.WriteKeyWord("CREATE USER ")
 		if err := n.User.Restore(ctx); err != nil {
@@ -2692,6 +2754,21 @@ func (n *ShowStmt) Restore(ctx *format.RestoreCtx) error {
 	case ShowCreateImport:
 		ctx.WriteKeyWord("CREATE IMPORT ")
 		ctx.WriteName(n.DBName)
+	case ShowPlacementForDatabase:
+		ctx.WriteKeyWord("PLACEMENT FOR DATABASE ")
+		ctx.WriteName(n.DBName)
+	case ShowPlacementForTable:
+		ctx.WriteKeyWord("PLACEMENT FOR TABLE ")
+		if err := n.Table.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while resotre ShowStmt.Table")
+		}
+	case ShowPlacementForPartition:
+		ctx.WriteKeyWord("PLACEMENT FOR TABLE ")
+		if err := n.Table.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while resotre ShowStmt.Table")
+		}
+		ctx.WriteKeyWord(" PARTITION ")
+		ctx.WriteName(n.Partition.String())
 	// ShowTargetFilterable
 	default:
 		switch n.Tp {
@@ -2796,6 +2873,8 @@ func (n *ShowStmt) Restore(ctx *format.RestoreCtx) error {
 			ctx.WriteKeyWord("RESTORES")
 		case ShowImports:
 			ctx.WriteKeyWord("IMPORTS")
+		case ShowPlacement:
+			ctx.WriteKeyWord("PLACEMENT")
 		default:
 			return errors.New("Unknown ShowStmt type")
 		}
@@ -3323,33 +3402,8 @@ func (m FulltextSearchModifier) WithQueryExpansion() bool {
 	return m&FulltextSearchModifierWithQueryExpansion == FulltextSearchModifierWithQueryExpansion
 }
 
-// TODO: remove the TimestampBoundMode.
-type TimestampBoundMode int
-
-const (
-	TimestampBoundStrong TimestampBoundMode = iota
-	TimestampBoundMaxStaleness
-	TimestampBoundExactStaleness
-	TimestampBoundReadTimestamp
-	TimestampBoundMinReadTimestamp
-)
-
-type TimestampReadModes int
-
-const (
-	TimestampReadStrong TimestampReadModes = iota
-	TimestampReadBoundTimestamp
-	TimestampReadExactTimestamp
-)
-
-type TimestampBound struct {
-	Mode      TimestampBoundMode
-	Timestamp ExprNode
-}
-
 type AsOfClause struct {
 	node
-	Mode   TimestampReadModes
 	TsExpr ExprNode
 }
 

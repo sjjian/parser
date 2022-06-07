@@ -221,6 +221,8 @@ const (
 
 	RestoreStringWithoutCharset
 	RestoreStringWithoutDefaultCharset
+
+	RestoreTiDBSpecialComment
 )
 
 const (
@@ -289,16 +291,21 @@ func (rf RestoreFlags) HasStringWithoutCharset() bool {
 	return rf.has(RestoreStringWithoutCharset)
 }
 
+func (rf RestoreFlags) HasTiDBSpecialCommentFlag() bool {
+	return rf.has(RestoreTiDBSpecialComment)
+}
+
 // RestoreCtx is `Restore` context to hold flags and writer.
 type RestoreCtx struct {
 	Flags     RestoreFlags
 	In        io.Writer
 	DefaultDB string
+	CTENames  []string
 }
 
 // NewRestoreCtx returns a new `RestoreCtx`.
 func NewRestoreCtx(flags RestoreFlags, in io.Writer) *RestoreCtx {
-	return &RestoreCtx{flags, in, ""}
+	return &RestoreCtx{flags, in, "", make([]string, 0)}
 }
 
 // WriteKeyWord writes the `keyWord` into writer.
@@ -311,6 +318,20 @@ func (ctx *RestoreCtx) WriteKeyWord(keyWord string) {
 		keyWord = strings.ToLower(keyWord)
 	}
 	fmt.Fprint(ctx.In, keyWord)
+}
+
+func (ctx *RestoreCtx) WriteWithSpecialComments(featureID string, fn func()) {
+	if !ctx.Flags.HasTiDBSpecialCommentFlag() {
+		fn()
+		return
+	}
+	ctx.WritePlain("/*T!")
+	if len(featureID) != 0 {
+		ctx.WritePlainf("[%s]", featureID)
+	}
+	ctx.WritePlain(" ")
+	fn()
+	ctx.WritePlain(" */")
 }
 
 // WriteString writes the string into writer
