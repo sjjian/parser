@@ -2288,6 +2288,8 @@ func (s *testParserSuite) TestDDL(c *C) {
 		{"alter table t encryption = 'y';", true, "ALTER TABLE `t` ENCRYPTION = 'y'"},
 		{"alter table t encryption 'y';", true, "ALTER TABLE `t` ENCRYPTION = 'y'"},
 
+		{`create table test1 ( a int, b int, c char(20),primary key (a,b),unique key u_1(a,c) ) shardkey=a;`, true, "CREATE TABLE `test1` (`a` INT,`b` INT,`c` CHAR(20),PRIMARY KEY(`a`, `b`),UNIQUE `u_1`(`a`, `c`)) SHARDKEY = a"},
+
 		// for alter database/schema/table
 		{"ALTER DATABASE t CHARACTER SET = 'utf8'", true, "ALTER DATABASE `t` CHARACTER SET = utf8"},
 		{"ALTER DATABASE CHARACTER SET = 'utf8'", true, "ALTER DATABASE CHARACTER SET = utf8"},
@@ -2961,6 +2963,16 @@ func (s *testParserSuite) TestDDL(c *C) {
 		{"alter table t auto_increment 30, auto_random_base 40", true, "ALTER TABLE `t` AUTO_INCREMENT = 30, AUTO_RANDOM_BASE = 40"},
 	}
 	s.RunTest(c, table)
+}
+
+func (s *testParserSuite) TestDDLValue(c *C) {
+	parser := parser.New()
+	src := "create table test1 ( a int, b int, c char(20),primary key (a,b),unique key u_1(a,c) ) SHARDKEY=a;"
+	stmt, err := parser.ParseOneStmt(src, "", "")
+	c.Assert(err, IsNil)
+	c.Assert(stmt, FitsTypeOf, &ast.CreateTableStmt{})
+	c.Assert(stmt.(*ast.CreateTableStmt).Options[0].Tp, Equals, ast.TableOptionShardKey)
+	c.Assert(stmt.(*ast.CreateTableStmt).Options[0].StrValue, Equals, "a")
 }
 
 func (s *testParserSuite) TestHintError(c *C) {
