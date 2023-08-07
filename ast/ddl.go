@@ -590,10 +590,12 @@ const (
 )
 
 // IndexOption is the index options.
-//    KEY_BLOCK_SIZE [=] value
-//  | index_type
-//  | WITH PARSER parser_name
-//  | COMMENT 'string'
+//
+//	  KEY_BLOCK_SIZE [=] value
+//	| index_type
+//	| WITH PARSER parser_name
+//	| COMMENT 'string'
+//
 // See http://dev.mysql.com/doc/refman/5.7/en/create-table.html
 type IndexOption struct {
 	node
@@ -1727,6 +1729,7 @@ type TableOptionType int
 const (
 	TableOptionNone TableOptionType = iota
 	TableOptionEngine
+	TableOptionShardKey
 	TableOptionCharset
 	TableOptionCollate
 	TableOptionAutoIdCache
@@ -1810,6 +1813,14 @@ func (n *TableOption) Restore(ctx *format.RestoreCtx) error {
 	switch n.Tp {
 	case TableOptionEngine:
 		ctx.WriteKeyWord("ENGINE ")
+		ctx.WritePlain("= ")
+		if n.StrValue != "" {
+			ctx.WritePlain(n.StrValue)
+		} else {
+			ctx.WritePlain("''")
+		}
+	case TableOptionShardKey:
+		ctx.WriteKeyWord("SHARDKEY ")
 		ctx.WritePlain("= ")
 		if n.StrValue != "" {
 			ctx.WritePlain(n.StrValue)

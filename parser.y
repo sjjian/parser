@@ -362,6 +362,7 @@ import (
 	end                   "END"
 	enforced              "ENFORCED"
 	engine                "ENGINE"
+	shardkey		      "SHARDKEY"
 	engines               "ENGINES"
 	enum                  "ENUM"
 	errorKwd              "ERROR"
@@ -3496,6 +3497,10 @@ PartDefOption:
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionEngine, StrValue: $3.(string)}
 	}
+|	"SHARDKEY" EqOpt StringName
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionShardKey, StrValue: $3.(string)}
+	}
 |	"STORAGE" "ENGINE" EqOpt StringName
 	{
 		$$ = &ast.TableOption{Tp: ast.TableOptionEngine, StrValue: $4.(string)}
@@ -4982,6 +4987,7 @@ UnReservedKeyword:
 |	"END"
 |	"ENFORCED"
 |	"ENGINE"
+|   "SHARDKEY"
 |	"ENGINES"
 |	"ENUM"
 |	"ERROR"

@@ -290,6 +290,7 @@ var tokenMap = map[string]int{
 	"END":                      end,
 	"ENFORCED":                 enforced,
 	"ENGINE":                   engine,
+	"SHARDKEY":                 shardkey,
 	"ENGINES":                  engines,
 	"ENUM":                     enum,
 	"ERROR":                    errorKwd,
@@ -935,11 +936,17 @@ func handleIdent(lval *yySymType) int {
 // SpecialCommentsController controls whether special comments like `/*T![xxx] yyy */`
 // can be parsed as `yyy`. To add such rules, please use SpecialCommentsController.Register().
 // For example:
-//     SpecialCommentsController.Register("30100");
+//
+//	SpecialCommentsController.Register("30100");
+//
 // Now the parser will treat
-//   select a, /*T![30100] mysterious_keyword */ from t;
+//
+//	select a, /*T![30100] mysterious_keyword */ from t;
+//
 // and
-//   select a, mysterious_keyword from t;
+//
+//	select a, mysterious_keyword from t;
+//
 // equally.
 // Similar special comments without registration are ignored by parser.
 var SpecialCommentsController = specialCommentsCtrl{
