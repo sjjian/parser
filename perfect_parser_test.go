@@ -9,6 +9,49 @@ import (
 	"github.com/pingcap/parser/format"
 )
 
+func TestLineNum(t *testing.T) {
+	p := parser.New()
+	stmts, _, err := p.PerfectParse(`select *
+from t	;
+select 3
+fromd tt;
+`, "", "")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	for i, stmt := range stmts {
+		t.Errorf("expect start line is %d, actual is %d", i+1, stmt.StartLine())
+	}
+}
+
+func TestTwoTo(t *testing.T) {
+	p := parser.New()
+	stmts, _, err := p.PerfectParse(`grant all on point_trans_shard_00_part_202401 to kgoldpointapp;
+create table point_trans_shard_00_part_202401(like point_trans_shard_00 including all) inherits(point_trans_shard_00);
+Alter table point_trans_shard_00_part_202401 ADD CONSTRAINT chk_point_trans_shard_202401 CHECK (processedtime >= '1704038400000'::bigint AND processedtime < '1706716800000'::bigint );
+create table point_trans_source_shard_00_part_202401(like point_trans_source_shard_00 including all) inherits(point_trans_source_shard_00);
+Alter table point_trans_source_shard_00_part_202401 ADD CONSTRAINT chk_point_trans_source_shard_202401 CHECK (processedtime >= '1704038400000'::bigint AND processedtime < '1706716800000'::bigint );
+grant select on point_trans_shard_00_part_202401 to prd_fin, dbsec, sec_db_scan;
+grant all on point_trans_source_shard_00_part_202401 to kgoldpointapp;
+grant select on point_trans_source_shard_00_part_202401 to prd_fin, dbsec, sec_db_scan;
+`, "", "")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if len(stmts) != 8 {
+		t.Errorf("expect 2 stmts, actual is %d", len(stmts))
+		return
+	}
+	for i, stmt := range stmts {
+		if stmt.StartLine() != i+1 {
+			t.Errorf("expect start line is %d, actual is %d", i+1, stmt.StartLine())
+		}
+	}
+}
+
 func TestStartLine(t *testing.T) {
 	// 测试用例第2个到第5个sql是解析器不能解析的sql
 	p := parser.New()

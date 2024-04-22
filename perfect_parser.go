@@ -12,6 +12,7 @@ func (parser *Parser) PerfectParse(sql, charset, collation string) (stmt []ast.S
 	_, warns, err = parser.Parse(sql, charset, collation)
 	stmts := parser.result
 	parser.updateStartLineWithOffset(stmts)
+	parser.endLineOffset += getLineNumber(sql, parser.lexer.stmtStartPos)
 	if err == nil {
 		return stmts, warns, nil
 	}
@@ -23,7 +24,6 @@ func (parser *Parser) PerfectParse(sql, charset, collation string) (stmt []ast.S
 		}
 		stmt = append(stmt, stmts...)
 	}
-	parser.startLineOffset += parser.lexer.r.pos().Line - 1
 	// The origin SQL text(input args `sql`) consists of many SQL segments,
 	// each SQL segments is a complete SQL and be parsed into `ast.StmtNode`.
 	//
@@ -85,10 +85,13 @@ ScanLoop:
 	unparsedStmtBuf.WriteString(sql[start:cur])
 	unparsedStmtBuf.WriteString(remainingSql[:endOffset+1])
 
+	parser.endLineOffset += countNewLinePrefix(unparsedStmtBuf.String())
+	parser.startLineOffset += parser.endLineOffset + countNewLinePrefix(sql[start:cur])
+
 	unparsedSql := unparsedStmtBuf.String()
 	if len(unparsedSql) > 0 {
 		un := &ast.UnparsedStmt{}
-		un.SetStartLine(parser.startLineOffset + 1)
+		un.SetStartLine(parser.startLineOffset)
 		un.SetText(unparsedSql)
 		stmt = append(stmt, un)
 	}
@@ -110,4 +113,26 @@ func (parser *Parser) updateStartLineWithOffset(stmts []ast.StmtNode) {
 	for i := range stmts {
 		stmts[i].SetStartLine(stmts[i].StartLine() + parser.startLineOffset)
 	}
+}
+
+func getLineNumber(s string, pos int) int {
+	lineNumber := 0
+	for i := 0; i <= pos; i++ {
+		if s[i] == '\n' {
+			lineNumber++
+		}
+	}
+	return lineNumber
+}
+
+func countNewLinePrefix(s string) int {
+	count := 0
+	for _, char := range s {
+		if char == '\n' {
+			count++
+		} else {
+			break
+		}
+	}
+	return count
 }

@@ -76,6 +76,7 @@ type Parser struct {
 	yyVAL  *yySymType
 
 	startLineOffset int
+	endLineOffset   int
 }
 
 type stmtTexter interface {
