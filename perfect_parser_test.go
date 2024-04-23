@@ -11,11 +11,9 @@ import (
 
 func TestLineNum(t *testing.T) {
 	p := parser.New()
-	stmts, _, err := p.PerfectParse(`select *
-from t	;
-select 3
-fromd tt;
-`, "", "")
+	stmts, _, err := p.PerfectParse(`create table point_trans_shard_00_part_202401(like point_trans_shard_00 including all) inherits(point_trans_shard_00);
+Alter table point_trans_shard_00_part_202401 ADD CONSTRAINT chk_point_trans_shard_202401 CHECK (processedtime >= '1704038400000'::bigint AND processedtime < '1706716800000'::bigint );
+create table point_trans_source_shard_00_part_202401(like point_trans_source_shard_00 including all) inherits(point_trans_source_shard_00);`, "", "")
 	if err != nil {
 		t.Error(err)
 		return

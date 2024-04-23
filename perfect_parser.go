@@ -2,7 +2,7 @@ package parser
 
 import (
 	"bytes"
-
+	"fmt"
 	"github.com/pingcap/parser/ast"
 )
 
@@ -12,7 +12,9 @@ func (parser *Parser) PerfectParse(sql, charset, collation string) (stmt []ast.S
 	_, warns, err = parser.Parse(sql, charset, collation)
 	stmts := parser.result
 	parser.updateStartLineWithOffset(stmts)
-	parser.endLineOffset += getLineNumber(sql, parser.lexer.stmtStartPos)
+	//fmt.Printf("stmts sql[:parser.lexer.stmtStartPos]: %v\n", sql[:parser.lexer.stmtStartPos])
+	fmt.Printf("parser.lexer.stmtStartPos: %v\n", parser.lexer.stmtStartPos)
+	fmt.Printf("getLineNumber(sql, parser.lexer.stmtStartPos): %v\n", getLineNumber(sql, parser.lexer.stmtStartPos))
 	if err == nil {
 		return stmts, warns, nil
 	}
@@ -85,14 +87,30 @@ ScanLoop:
 	unparsedStmtBuf.WriteString(sql[start:cur])
 	unparsedStmtBuf.WriteString(remainingSql[:endOffset+1])
 
-	parser.endLineOffset += countNewLinePrefix(unparsedStmtBuf.String())
-	parser.startLineOffset += parser.endLineOffset + countNewLinePrefix(sql[start:cur])
+	fmt.Printf("unparsedStmtBuf.String(): %v\n", unparsedStmtBuf.String())
+	fmt.Printf("countNewLinePrefix(unparsedStmtBuf.String()): %v\n", countNewLinePrefix(unparsedStmtBuf.String()))
+
+	//if parser.endLineOffset == 0 {
+	//	parser.endLineOffset = 1
+	//}
+
+	if start != 0 {
+		parser.endLineOffset += getLineNumber(sql, start)
+	}
 
 	unparsedSql := unparsedStmtBuf.String()
+	parser.endLineOffset += getTotalLine(unparsedStmtBuf.String())
+
+	parser.startLineOffset = parser.endLineOffset + countNewLinePrefix(unparsedStmtBuf.String()) - 1
+	if parser.startLineOffset == -1 {
+		parser.startLineOffset = 0
+	}
+
 	if len(unparsedSql) > 0 {
 		un := &ast.UnparsedStmt{}
-		un.SetStartLine(parser.startLineOffset)
+		un.SetStartLine(parser.startLineOffset + 1)
 		un.SetText(unparsedSql)
+		fmt.Printf("un.StartLine(): %v\n", un.StartLine())
 		stmt = append(stmt, un)
 	}
 
@@ -109,13 +127,28 @@ ScanLoop:
 	return stmt, warns, nil
 }
 
+func getTotalLine(remainingSql string) int {
+	count := 0
+	for _, char := range remainingSql {
+		if char == '\n' {
+			count++
+		}
+	}
+	return count
+}
+
 func (parser *Parser) updateStartLineWithOffset(stmts []ast.StmtNode) {
 	for i := range stmts {
+		fmt.Printf("stmts[i].StartLine(): %v\n", stmts[i].StartLine())
 		stmts[i].SetStartLine(stmts[i].StartLine() + parser.startLineOffset)
 	}
 }
 
 func getLineNumber(s string, pos int) int {
+	if pos == 0 {
+		return 0
+	}
+
 	lineNumber := 0
 	for i := 0; i <= pos; i++ {
 		if s[i] == '\n' {
