@@ -589,6 +589,79 @@ import (
 	x509                  "X509"
 	yearType              "YEAR"
 
+	/* The following tokens also belong to UnReservedKeyword (geometry types). */
+	geometry           "GEOMETRY"
+	point              "POINT"
+	linestring         "LINESTRING"
+	polygon            "POLYGON"
+	multipoint         "MULTIPOINT"
+	multilinestring    "MULTILINESTRING"
+	multipolygon       "MULTIPOLYGON"
+	geometrycollection "GEOMETRYCOLLECTION"
+
+	/* OceanBase extension tokens for SELECT layer */
+	base                  "BASE"
+	cube                  "CUBE"
+	grouping              "GROUPING"
+	incr                  "INCR"
+	locked                "LOCKED"
+	noWait                "NO_WAIT"
+	rollup                "ROLLUP"
+	sample                "SAMPLE"
+	seed                  "SEED"
+	sets                  "SETS"
+	skip                  "SKIP"
+	waitKwd               "WAIT"
+
+	/* OceanBase extension tokens for Phase 3 DDL statements */
+	before                     "BEFORE"
+	complete                   "COMPLETE"
+	connect                    "CONNECT"
+	host                       "HOST"
+	link                       "LINK"
+	concurrently               "CONCURRENTLY"
+	demand                     "DEMAND"
+	fast                       "FAST"
+	materialized               "MATERIALIZED"
+	outline                    "OUTLINE"
+	purge                      "PURGE"
+	recyclebin                 "RECYCLEBIN"
+	refresh                    "REFRESH"
+	sequences                  "SEQUENCES"
+	sharding                   "SHARDING"
+	sizeKwd                    "SIZE"
+	tablegroups                "TABLEGROUPS"
+	tenant                     "TENANT"
+	views                      "VIEWS"
+
+	/* OceanBase extension tokens for DDL layer */
+	autoIncrCacheSize         "AUTO_INCREMENT_CACHE_SIZE"
+	blockSizeKwd              "BLOCK_SIZE"
+	duplicateScope            "DUPLICATE_SCOPE"
+	dynamicPartitionPolicy    "DYNAMIC_PARTITION_POLICY"
+	enableMacroBlockBloomFilter "ENABLE_MACRO_BLOCK_BLOOM_FILTER"
+	heap                      "HEAP"
+	lobInrowThreshold         "LOB_INROW_THRESHOLD"
+	mergeEngine               "MERGE_ENGINE"
+	migrate                   "MIGRATE"
+	noorder                   "NOORDER"
+	noparallel                "NOPARALLEL"
+	one                       "ONE"
+	organization              "ORGANIZATION"
+	parallel                  "PARALLEL"
+	pctfree                   "PCTFREE"
+	phase                     "PHASE"
+	restart                   "RESTART"
+	semistructEncodingType    "SEMISTRUCT_ENCODING_TYPE"
+	skipIndex                 "SKIP_INDEX"
+	minMax                    "MIN_MAX"
+	storing                   "STORING"
+	suspend                   "SUSPEND"
+	tableMode                 "TABLE_MODE"
+	tablegroup                "TABLEGROUP"
+	xaKwd                     "XA"
+	xid                        "XID"
+
 	/* The following tokens belong to NotKeywordToken. Notice: make sure these tokens are contained in NotKeywordToken. */
 	addDate               "ADDDATE"
 	bitAnd                "BIT_AND"
@@ -705,15 +778,9 @@ import (
 	builtinVarPop
 	builtinVarSamp
 
-	/* The following tokens belong to GEOMETRY column. */
-	geometry           "GEOMETRY"
-	point              "POINT"
-	linestring         "LINESTRING"
-	polygon            "POLYGON"
-	multipoint         "MULTIPOINT"
-	multilinestring    "MULTILINESTRING"
-	multipolygon       "MULTIPOLYGON"
-	geometrycollection "GEOMETRYCOLLECTION"
+	/* The following tokens are used for OceanBase set operations (reserved, not identifiers). */
+	intersect          "INTERSECT"
+	minus              "MINUS"
 
 %token	<item>
 
@@ -793,6 +860,26 @@ import (
 	CreateIndexStmt      "CREATE INDEX statement"
 	CreateBindingStmt    "CREATE BINDING  statement"
 	CreateSequenceStmt   "CREATE SEQUENCE statement"
+	AlterSequenceStmt        "ALTER SEQUENCE statement"
+	XAStmt                   "XA distributed transaction statement"
+	RenameUserStmt            "RENAME USER statement"
+	OptimizeTableStmt         "OPTIMIZE TABLE statement"
+	ChecksumTableStmt         "CHECKSUM TABLE statement"
+	CreateTablegroupStmt      "CREATE TABLEGROUP statement"
+	AlterTablegroupStmt       "ALTER TABLEGROUP statement"
+	DropTablegroupStmt        "DROP TABLEGROUP statement"
+	CreateOutlineStmt         "CREATE OUTLINE statement"
+	AlterOutlineStmt          "ALTER OUTLINE statement"
+	DropOutlineStmt           "DROP OUTLINE statement"
+	PurgeStmt                 "PURGE statement"
+	FlashbackStmt             "FLASHBACK statement"
+	CreateMaterializedViewStmt "CREATE MATERIALIZED VIEW statement"
+	AlterMaterializedViewStmt  "ALTER MATERIALIZED VIEW statement"
+	DropMaterializedViewStmt   "DROP MATERIALIZED VIEW statement"
+	CreateRestorePointStmt     "CREATE RESTORE POINT statement"
+	DropRestorePointStmt       "DROP RESTORE POINT statement"
+	CreateDBLinkStmt           "CREATE DATABASE LINK statement"
+	DropDBLinkStmt             "DROP DATABASE LINK statement"
 	DoStmt               "Do statement"
 	DropDatabaseStmt     "DROP DATABASE statement"
 	DropIndexStmt        "DROP INDEX statement"
@@ -848,6 +935,10 @@ import (
 	AllOrPartitionNameList                 "All or partition name list"
 	AlgorithmClause                        "Alter table algorithm"
 	AlterTablePartitionOpt                 "Alter table partition option"
+	XAID                                   "XA transaction identifier"
+	RenameUserList                         "RENAME USER list"
+	RenameUserItem                         "RENAME USER item"
+	MVRefreshClauseOpt                     "Optional materialized view refresh clause"
 	AlterTableSpec                         "Alter table specification"
 	AlterTableSpecList                     "Alter table specification list"
 	AlterTableSpecListOpt                  "Alter table specification list optional"
@@ -930,6 +1021,9 @@ import (
 	GetFormatSelector                      "{DATE|DATETIME|TIME|TIMESTAMP}"
 	GlobalScope                            "The scope of variable"
 	GroupByClause                          "GROUP BY clause"
+	GroupingSetsExprList                   "GROUPING SETS expression list"
+	SkipIndexOpt                           "Optional SKIP_INDEX clause (OceanBase)"
+	SkipIndexOptionList                    "SKIP_INDEX option list"
 	HashString                             "Hashed string"
 	HavingClause                           "HAVING clause"
 	HandleRange                            "handle range"
@@ -1276,6 +1370,8 @@ import (
 %precedence insertValues
 %precedence lowerThanCreateTableSelect
 %precedence createTableSelect
+%precedence lowerThanWithRollup
+%left with start
 %precedence lowerThanCharsetKwd
 %precedence charsetKwd
 %precedence lowerThanKey
@@ -1287,6 +1383,9 @@ import (
 %precedence lowerThenOrder
 %precedence order
 %left join straightJoin inner cross left right full natural
+
+/* Set operation precedence for OceanBase INTERSECT/MINUS (lower than UNION). */
+%left intersect minus
 
 /* A dummy token to force the priority of TableRef production in a join. */
 %left tableRefPriority
@@ -2416,9 +2515,9 @@ ColumnDefList:
 	}
 
 ColumnDef:
-	ColumnName Type ColumnOptionListOpt
+	ColumnName Type ColumnOptionListOpt SkipIndexOpt
 	{
-		colDef := &ast.ColumnDef{Name: $1.(*ast.ColumnName), Tp: $2.(*types.FieldType), Options: $3.([]*ast.ColumnOption)}
+		colDef := &ast.ColumnDef{Name: $1.(*ast.ColumnName), Tp: $2.(*types.FieldType), Options: $3.([]*ast.ColumnOption), SkipIndex: $4.([]ast.SkipIndexType)}
 		if !colDef.Validate() {
 			yylex.AppendError(yylex.Errorf("Invalid column definition"))
 			return 1
@@ -2438,6 +2537,34 @@ ColumnDef:
 			return 1
 		}
 		$$ = colDef
+	}
+
+SkipIndexOpt:
+	/* empty */
+	{
+		$$ = ([]ast.SkipIndexType)(nil)
+	}
+|	"SKIP_INDEX" '(' SkipIndexOptionList ')'
+	{
+		$$ = $3.([]ast.SkipIndexType)
+	}
+
+SkipIndexOptionList:
+	"MIN_MAX"
+	{
+		$$ = []ast.SkipIndexType{ast.SkipIndexMinMax}
+	}
+|	"SUM"
+	{
+		$$ = []ast.SkipIndexType{ast.SkipIndexSum}
+	}
+|	SkipIndexOptionList ',' "MIN_MAX"
+	{
+		$$ = append($1.([]ast.SkipIndexType), ast.SkipIndexMinMax)
+	}
+|	SkipIndexOptionList ',' "SUM"
+	{
+		$$ = append($1.([]ast.SkipIndexType), ast.SkipIndexSum)
 	}
 
 ColumnName:
@@ -3203,6 +3330,9 @@ AlterDatabaseStmt:
  *      [DEFAULT] CHARACTER SET [=] charset_name
  *    | [DEFAULT] COLLATE [=] collation_name
  *    | [DEFAULT] ENCRYPTION [=] {'Y' | 'N'}
+ *  OceanBase extensions:
+ *      READ ONLY | READ WRITE
+ *  Note: [DEFAULT] TABLEGROUP is not parsed here (conflicts with ALTER DATABASE name / option forms).
  *******************************************************************/
 CreateDatabaseStmt:
 	"CREATE" DatabaseSym IfNotExists DBName DatabaseOptionListOpt
@@ -3232,6 +3362,14 @@ DatabaseOption:
 |	DefaultKwdOpt "ENCRYPTION" EqOpt EncryptionOpt
 	{
 		$$ = &ast.DatabaseOption{Tp: ast.DatabaseOptionEncryption, Value: $4}
+	}
+|	"READ" "ONLY"
+	{
+		$$ = &ast.DatabaseOption{Tp: ast.DatabaseOptionReadOnly}
+	}
+|	"READ" "WRITE"
+	{
+		$$ = &ast.DatabaseOption{Tp: ast.DatabaseOptionReadWrite}
 	}
 
 DatabaseOptionListOpt:
@@ -4866,9 +5004,66 @@ FieldList:
 	}
 
 GroupByClause:
-	"GROUP" "BY" ByList
+	"GROUP" "BY" ByList %prec lowerThanWithRollup
 	{
 		$$ = &ast.GroupByClause{Items: $3.([]*ast.ByItem)}
+	}
+|	"GROUP" "BY" ByList "WITH" "ROLLUP"
+	{
+		$$ = &ast.GroupByClause{Items: $3.([]*ast.ByItem), Rollup: true}
+	}
+|	"GROUP" "BY" "GROUPING" "SETS" '(' GroupingSetsExprList ')'
+	{
+		$$ = &ast.GroupByClause{
+			Summary: &ast.GroupingSummary{Type: ast.GroupingSetsType, GroupSets: $6.([][]ast.ExprNode)},
+		}
+	}
+|	"GROUP" "BY" ByList ',' "GROUPING" "SETS" '(' GroupingSetsExprList ')'
+	{
+		$$ = &ast.GroupByClause{
+			Items:   $3.([]*ast.ByItem),
+			Summary: &ast.GroupingSummary{Type: ast.GroupingSetsType, GroupSets: $8.([][]ast.ExprNode)},
+		}
+	}
+|	"GROUP" "BY" "ROLLUP" '(' ExpressionList ')'
+	{
+		exprs := $5.([]ast.ExprNode)
+		$$ = &ast.GroupByClause{
+			Summary: &ast.GroupingSummary{Type: ast.RollupSummaryType, GroupSets: [][]ast.ExprNode{exprs}},
+		}
+	}
+|	"GROUP" "BY" ByList ',' "ROLLUP" '(' ExpressionList ')'
+	{
+		exprs := $7.([]ast.ExprNode)
+		$$ = &ast.GroupByClause{
+			Items: $3.([]*ast.ByItem),
+			Summary: &ast.GroupingSummary{Type: ast.RollupSummaryType, GroupSets: [][]ast.ExprNode{exprs}},
+		}
+	}
+|	"GROUP" "BY" "CUBE" '(' ExpressionList ')'
+	{
+		exprs := $5.([]ast.ExprNode)
+		$$ = &ast.GroupByClause{
+			Summary: &ast.GroupingSummary{Type: ast.CubeSummaryType, GroupSets: [][]ast.ExprNode{exprs}},
+		}
+	}
+|	"GROUP" "BY" ByList ',' "CUBE" '(' ExpressionList ')'
+	{
+		exprs := $7.([]ast.ExprNode)
+		$$ = &ast.GroupByClause{
+			Items: $3.([]*ast.ByItem),
+			Summary: &ast.GroupingSummary{Type: ast.CubeSummaryType, GroupSets: [][]ast.ExprNode{exprs}},
+		}
+	}
+
+GroupingSetsExprList:
+	'(' ExpressionList ')'
+	{
+		$$ = [][]ast.ExprNode{$2.([]ast.ExprNode)}
+	}
+|	GroupingSetsExprList ',' '(' ExpressionList ')'
+	{
+		$$ = append($1.([][]ast.ExprNode), $4.([]ast.ExprNode))
 	}
 
 HavingClause:
@@ -4939,6 +5134,16 @@ IndexOptionList:
 				opt1.ParserName = opt2.ParserName
 			} else if opt2.Visibility != ast.IndexVisibilityDefault {
 				opt1.Visibility = opt2.Visibility
+			} else if opt2.IsGlobal {
+				opt1.IsGlobal = true
+			} else if opt2.IsLocal {
+				opt1.IsLocal = true
+			} else if opt2.BlockSize > 0 {
+				opt1.BlockSize = opt2.BlockSize
+			} else if len(opt2.IndexCompression) > 0 {
+				opt1.IndexCompression = opt2.IndexCompression
+			} else if len(opt2.StoringCols) > 0 {
+				opt1.StoringCols = opt2.StoringCols
 			}
 			$$ = opt1
 		}
@@ -4976,6 +5181,26 @@ IndexOption:
 		$$ = &ast.IndexOption{
 			Visibility: $1.(ast.IndexVisibility),
 		}
+	}
+|	"GLOBAL"
+	{
+		$$ = &ast.IndexOption{IsGlobal: true}
+	}
+|	"LOCAL"
+	{
+		$$ = &ast.IndexOption{IsLocal: true}
+	}
+|	"BLOCK_SIZE" EqOpt LengthNum
+	{
+		$$ = &ast.IndexOption{BlockSize: $3.(uint64)}
+	}
+|	"COMPRESSION" EqOpt stringLit
+	{
+		$$ = &ast.IndexOption{IndexCompression: $3}
+	}
+|	"STORING" '(' ColumnNameList ')'
+	{
+		$$ = &ast.IndexOption{StoringCols: $3.([]*ast.ColumnName)}
 	}
 
 /*
@@ -5377,6 +5602,62 @@ UnReservedKeyword:
 |	"MULTILINESTRING"
 |	"MULTIPOLYGON"
 |	"GEOMETRYCOLLECTION"
+|	"BASE"
+|	"CUBE"
+|	"GROUPING"
+|	"INCR"
+|	"LOCKED"
+|	"NO_WAIT"
+|	"ROLLUP"
+|	"SAMPLE"
+|	"SEED"
+|	"SETS"
+|	"SKIP"
+|	"WAIT"
+|	"AUTO_INCREMENT_CACHE_SIZE"
+|	"BLOCK_SIZE"
+|	"DUPLICATE_SCOPE"
+|	"DYNAMIC_PARTITION_POLICY"
+|	"ENABLE_MACRO_BLOCK_BLOOM_FILTER"
+|	"HEAP"
+|	"LOB_INROW_THRESHOLD"
+|	"MERGE_ENGINE"
+|	"MIGRATE"
+|	"NOORDER"
+|	"NOPARALLEL"
+|	"ONE"
+|	"ORGANIZATION"
+|	"PARALLEL"
+|	"PCTFREE"
+|	"PHASE"
+|	"RESTART"
+|	"SEMISTRUCT_ENCODING_TYPE"
+|	"MIN_MAX"
+|	"SKIP_INDEX"
+|	"STORING"
+|	"SUSPEND"
+|	"TABLE_MODE"
+|	"TABLEGROUP"
+|	"XA"
+|	"XID"
+|	"BEFORE"
+|	"COMPLETE"
+|	"CONNECT"
+|	"HOST"
+|	"CONCURRENTLY"
+|	"DEMAND"
+|	"FAST"
+|	"MATERIALIZED"
+|	"OUTLINE"
+|	"PURGE"
+|	"RECYCLEBIN"
+|	"REFRESH"
+|	"SEQUENCES"
+|	"SHARDING"
+|	"SIZE"
+|	"TABLEGROUPS"
+|	"TENANT"
+|	"VIEWS"
 
 TiDBKeyword:
 	"ADMIN"
@@ -6052,6 +6333,7 @@ SimpleExpr:
 DistinctKwd:
 	"DISTINCT"
 |	"DISTINCTROW"
+|	"UNIQUE"
 
 DistinctOpt:
 	"ALL"
@@ -7205,6 +7487,417 @@ ShutdownStmt:
 		$$ = &ast.ShutdownStmt{}
 	}
 
+/***********************************************************************************
+ * XA Distributed Transaction Statements (OceanBase extension)
+ ***********************************************************************************/
+XAStmt:
+	"XA" "START" XAID
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtStart, XID: $3.(ast.XAID)}
+	}
+|	"XA" "BEGIN" XAID
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtStart, XID: $3.(ast.XAID)}
+	}
+|	"XA" "END" XAID
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtEnd, XID: $3.(ast.XAID)}
+	}
+|	"XA" "END" XAID "SUSPEND"
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtEnd, XID: $3.(ast.XAID), Suspend: true}
+	}
+|	"XA" "END" XAID "SUSPEND" "FOR" "MIGRATE"
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtEnd, XID: $3.(ast.XAID), Suspend: true, SuspendMigrate: true}
+	}
+|	"XA" "PREPARE" XAID
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtPrepare, XID: $3.(ast.XAID)}
+	}
+|	"XA" "COMMIT" XAID
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtCommit, XID: $3.(ast.XAID)}
+	}
+|	"XA" "COMMIT" XAID "ONE" "PHASE"
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtCommit, XID: $3.(ast.XAID), OnePhase: true}
+	}
+|	"XA" "ROLLBACK" XAID
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtRollback, XID: $3.(ast.XAID)}
+	}
+|	"XA" "RECOVER"
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtRecover}
+	}
+|	"XA" "RECOVER" "CONVERT" "XID"
+	{
+		$$ = &ast.XAStmt{Type: ast.XAStmtRecover, ConvertXID: true}
+	}
+
+XAID:
+	stringLit %prec lowerThanComma
+	{
+		$$ = ast.XAID{GTrID: $1}
+	}
+|	stringLit ',' stringLit %prec lowerThanComma
+	{
+		$$ = ast.XAID{GTrID: $1, BQual: $3, FormatID: 1}
+	}
+|	stringLit ',' stringLit ',' NUM
+	{
+		$$ = ast.XAID{GTrID: $1, BQual: $3, FormatID: $5.(int64)}
+	}
+
+/***********************************************************************************
+ * RENAME USER Statement (OceanBase extension)
+ ***********************************************************************************/
+RenameUserStmt:
+	"RENAME" "USER" RenameUserList
+	{
+		$$ = &ast.RenameUserStmt{UserToUsers: $3.([]*ast.UserToUser)}
+	}
+
+RenameUserList:
+	RenameUserItem
+	{
+		$$ = []*ast.UserToUser{$1.(*ast.UserToUser)}
+	}
+|	RenameUserList ',' RenameUserItem
+	{
+		$$ = append($1.([]*ast.UserToUser), $3.(*ast.UserToUser))
+	}
+
+RenameUserItem:
+	Username "TO" Username
+	{
+		$$ = &ast.UserToUser{OldUser: $1.(*auth.UserIdentity), NewUser: $3.(*auth.UserIdentity)}
+	}
+
+/***********************************************************************************
+ * OPTIMIZE TABLE Statement (OceanBase extension)
+ ***********************************************************************************/
+OptimizeTableStmt:
+	"OPTIMIZE" "TABLE" TableNameList
+	{
+		$$ = &ast.OptimizeTableStmt{Tables: $3.([]*ast.TableName)}
+	}
+|	"OPTIMIZE" "NO_WRITE_TO_BINLOG" "TABLE" TableNameList
+	{
+		$$ = &ast.OptimizeTableStmt{NoWriteToBinLog: true, Tables: $4.([]*ast.TableName)}
+	}
+|	"OPTIMIZE" "LOCAL" "TABLE" TableNameList
+	{
+		$$ = &ast.OptimizeTableStmt{NoWriteToBinLog: true, Tables: $4.([]*ast.TableName)}
+	}
+
+/***********************************************************************************
+ * CHECKSUM TABLE Statement (OceanBase extension)
+ ***********************************************************************************/
+ChecksumTableStmt:
+	"CHECKSUM" "TABLE" TableNameList
+	{
+		$$ = &ast.ChecksumTableStmt{Tables: $3.([]*ast.TableName)}
+	}
+|	"CHECKSUM" "TABLE" TableNameList "QUICK"
+	{
+		$$ = &ast.ChecksumTableStmt{Tables: $3.([]*ast.TableName), Quick: true}
+	}
+|	"CHECKSUM" "TABLE" TableNameList "EXTENDED"
+	{
+		$$ = &ast.ChecksumTableStmt{Tables: $3.([]*ast.TableName), Extended: true}
+	}
+
+/***********************************************************************************
+ * TABLEGROUP Statements (OceanBase extension)
+ ***********************************************************************************/
+CreateTablegroupStmt:
+	"CREATE" "TABLEGROUP" Identifier
+	{
+		$$ = &ast.CreateTablegroupStmt{Name: $3}
+	}
+|	"CREATE" "TABLEGROUP" Identifier "SHARDING" EqOpt stringLit
+	{
+		$$ = &ast.CreateTablegroupStmt{Name: $3, Sharding: $6}
+	}
+
+AlterTablegroupStmt:
+	"ALTER" "TABLEGROUP" Identifier "ADD" TableNameList
+	{
+		$$ = &ast.AlterTablegroupStmt{
+			Name:   $3,
+			Action: ast.AlterTablegroupAddTable,
+			Tables: $5.([]*ast.TableName),
+		}
+	}
+|	"ALTER" "TABLEGROUP" Identifier "ADD" "TABLE" TableNameList
+	{
+		$$ = &ast.AlterTablegroupStmt{
+			Name:   $3,
+			Action: ast.AlterTablegroupAddTable,
+			Tables: $6.([]*ast.TableName),
+		}
+	}
+|	"ALTER" "TABLEGROUP" Identifier "SHARDING" EqOpt stringLit
+	{
+		$$ = &ast.AlterTablegroupStmt{
+			Name:     $3,
+			Action:   ast.AlterTablegroupSetSharding,
+			Sharding: $6,
+		}
+	}
+
+DropTablegroupStmt:
+	"DROP" "TABLEGROUP" Identifier
+	{
+		$$ = &ast.DropTablegroupStmt{Name: $3}
+	}
+
+/***********************************************************************************
+ * OUTLINE Statements (OceanBase extension)
+ ***********************************************************************************/
+CreateOutlineStmt:
+	"CREATE" "OUTLINE" Identifier "ON" stringLit
+	{
+		$$ = &ast.CreateOutlineStmt{Name: $3, OnSQL: $5}
+	}
+|	"CREATE" "OUTLINE" Identifier "ON" stringLit "TO" stringLit
+	{
+		$$ = &ast.CreateOutlineStmt{Name: $3, OnSQL: $5, ToSQL: $7}
+	}
+|	"CREATE" "OR" "REPLACE" "OUTLINE" Identifier "ON" stringLit
+	{
+		$$ = &ast.CreateOutlineStmt{Name: $5, OrReplace: true, OnSQL: $7}
+	}
+|	"CREATE" "OR" "REPLACE" "OUTLINE" Identifier "ON" stringLit "TO" stringLit
+	{
+		$$ = &ast.CreateOutlineStmt{Name: $5, OrReplace: true, OnSQL: $7, ToSQL: $9}
+	}
+|	"CREATE" "FORMAT" "OUTLINE" Identifier "ON" stringLit
+	{
+		$$ = &ast.CreateOutlineStmt{Name: $4, IsFormat: true, OnSQL: $6}
+	}
+|	"CREATE" "OR" "REPLACE" "FORMAT" "OUTLINE" Identifier "ON" stringLit
+	{
+		$$ = &ast.CreateOutlineStmt{Name: $6, OrReplace: true, IsFormat: true, OnSQL: $8}
+	}
+
+AlterOutlineStmt:
+	"ALTER" "OUTLINE" Identifier "CONCURRENTLY" "ON" stringLit
+	{
+		$$ = &ast.AlterOutlineStmt{Name: $3, OnSQL: $6}
+	}
+
+DropOutlineStmt:
+	"DROP" "OUTLINE" Identifier
+	{
+		$$ = &ast.DropOutlineStmt{Name: $3}
+	}
+
+/***********************************************************************************
+ * PURGE Statement (OceanBase extension)
+ ***********************************************************************************/
+PurgeStmt:
+	"PURGE" "RECYCLEBIN"
+	{
+		$$ = &ast.PurgeStmt{ObjectType: ast.PurgeRecyclebin}
+	}
+|	"PURGE" "TENANT" Identifier
+	{
+		$$ = &ast.PurgeStmt{ObjectType: ast.PurgeTenant, ObjectName: $3}
+	}
+|	"PURGE" "DATABASE" Identifier
+	{
+		$$ = &ast.PurgeStmt{ObjectType: ast.PurgeDatabase, ObjectName: $3}
+	}
+|	"PURGE" "TABLE" Identifier
+	{
+		$$ = &ast.PurgeStmt{ObjectType: ast.PurgeTable, ObjectName: $3}
+	}
+|	"PURGE" "INDEX" Identifier
+	{
+		$$ = &ast.PurgeStmt{ObjectType: ast.PurgeIndex, ObjectName: $3}
+	}
+
+/***********************************************************************************
+ * FLASHBACK Statement (OceanBase extension - extends existing FLASHBACK TABLE)
+ ***********************************************************************************/
+FlashbackStmt:
+	"FLASHBACK" "TABLE" TableName "TO" "BEFORE" "DROP"
+	{
+		$$ = &ast.FlashBackTableStmt{
+			Table:        $3.(*ast.TableName),
+			ToBeforeDrop: true,
+		}
+	}
+|	"FLASHBACK" "TABLE" TableName "TO" "BEFORE" "DROP" "RENAME" "TO" Identifier
+	{
+		$$ = &ast.FlashBackTableStmt{
+			Table:        $3.(*ast.TableName),
+			NewName:      $9,
+			ToBeforeDrop: true,
+		}
+	}
+|	"FLASHBACK" "DATABASE" TableName "TO" "BEFORE" "DROP"
+	{
+		$$ = &ast.FlashBackTableStmt{
+			Table:        $3.(*ast.TableName),
+			ObjectType:   ast.FlashBackDatabase,
+			ToBeforeDrop: true,
+		}
+	}
+|	"FLASHBACK" "DATABASE" TableName "TO" "BEFORE" "DROP" "RENAME" "TO" Identifier
+	{
+		$$ = &ast.FlashBackTableStmt{
+			Table:        $3.(*ast.TableName),
+			ObjectType:   ast.FlashBackDatabase,
+			NewName:      $9,
+			ToBeforeDrop: true,
+		}
+	}
+|	"FLASHBACK" "TENANT" TableName "TO" "BEFORE" "DROP"
+	{
+		$$ = &ast.FlashBackTableStmt{
+			Table:        $3.(*ast.TableName),
+			ObjectType:   ast.FlashBackTenant,
+			ToBeforeDrop: true,
+		}
+	}
+|	"FLASHBACK" "TENANT" TableName "TO" "BEFORE" "DROP" "RENAME" "TO" Identifier
+	{
+		$$ = &ast.FlashBackTableStmt{
+			Table:        $3.(*ast.TableName),
+			ObjectType:   ast.FlashBackTenant,
+			NewName:      $9,
+			ToBeforeDrop: true,
+		}
+	}
+
+/***********************************************************************************
+ * MATERIALIZED VIEW Statements (OceanBase extension)
+ ***********************************************************************************/
+CreateMaterializedViewStmt:
+	"CREATE" "MATERIALIZED" "VIEW" TableName MVRefreshClauseOpt "AS" SelectStmt
+	{
+		var sel ast.ResultSetNode
+		if s, ok := $7.(*ast.SelectStmt); ok {
+			sel = s
+		}
+		rc, _ := $5.(*ast.MVRefreshClause)
+		$$ = &ast.CreateMaterializedViewStmt{
+			ViewName:      $4.(*ast.TableName),
+			RefreshClause: rc,
+			Select:        sel,
+		}
+	}
+|	"CREATE" "MATERIALIZED" "VIEW" TableName MVRefreshClauseOpt "AS" UnionStmt
+	{
+		sel := $7.(*ast.UnionStmt)
+		rc, _ := $5.(*ast.MVRefreshClause)
+		$$ = &ast.CreateMaterializedViewStmt{
+			ViewName:      $4.(*ast.TableName),
+			RefreshClause: rc,
+			Select:        sel,
+		}
+	}
+
+MVRefreshClauseOpt:
+	/* empty */
+	{
+		$$ = (*ast.MVRefreshClause)(nil)
+	}
+|	"REFRESH" "COMPLETE"
+	{
+		$$ = &ast.MVRefreshClause{RefreshType: ast.MVRefreshComplete}
+	}
+|	"REFRESH" "FAST"
+	{
+		$$ = &ast.MVRefreshClause{RefreshType: ast.MVRefreshFast}
+	}
+|	"REFRESH" "FORCE"
+	{
+		$$ = &ast.MVRefreshClause{RefreshType: ast.MVRefreshForce}
+	}
+|	"NEVER" "REFRESH"
+	{
+		$$ = &ast.MVRefreshClause{RefreshType: ast.MVRefreshNever}
+	}
+|	"REFRESH" "COMPLETE" "ON" "DEMAND"
+	{
+		$$ = &ast.MVRefreshClause{RefreshType: ast.MVRefreshComplete, OnDemand: true}
+	}
+|	"REFRESH" "FAST" "ON" "DEMAND"
+	{
+		$$ = &ast.MVRefreshClause{RefreshType: ast.MVRefreshFast, OnDemand: true}
+	}
+|	"REFRESH" "FORCE" "ON" "DEMAND"
+	{
+		$$ = &ast.MVRefreshClause{RefreshType: ast.MVRefreshForce, OnDemand: true}
+	}
+
+AlterMaterializedViewStmt:
+	"ALTER" "MATERIALIZED" "VIEW" TableName MVRefreshClauseOpt
+	{
+		rc, _ := $5.(*ast.MVRefreshClause)
+		$$ = &ast.AlterMaterializedViewStmt{
+			ViewName:      $4.(*ast.TableName),
+			RefreshClause: rc,
+		}
+	}
+
+DropMaterializedViewStmt:
+	"DROP" "MATERIALIZED" "VIEW" TableNameList
+	{
+		$$ = &ast.DropMaterializedViewStmt{Views: $4.([]*ast.TableName)}
+	}
+|	"DROP" "MATERIALIZED" "VIEW" "IF" "EXISTS" TableNameList
+	{
+		$$ = &ast.DropMaterializedViewStmt{IfExists: true, Views: $6.([]*ast.TableName)}
+	}
+
+/***********************************************************************************
+ * CREATE/DROP RESTORE POINT Statements (OceanBase extension)
+ ***********************************************************************************/
+CreateRestorePointStmt:
+	"CREATE" "RESTORE" "POINT" Identifier
+	{
+		$$ = &ast.CreateRestorePointStmt{Name: $4}
+	}
+
+DropRestorePointStmt:
+	"DROP" "RESTORE" "POINT" Identifier
+	{
+		$$ = &ast.DropRestorePointStmt{Name: $4}
+	}
+
+/***********************************************************************************
+ * CREATE/DELETE DATABASE LINK (OceanBase extension)
+ ***********************************************************************************/
+CreateDBLinkStmt:
+	"CREATE" "DATABASE" "LINK" Identifier "CONNECT" "TO" Identifier "IDENTIFIED" "BY" stringLit "HOST" stringLit
+	{
+		$$ = &ast.CreateDBLinkStmt{Name: $4, User: $7, Password: $10, Host: $12}
+	}
+|	"CREATE" "DATABASE" "LINK" Identifier "CONNECT" "TO" Identifier '@' Identifier "IDENTIFIED" "BY" stringLit "HOST" stringLit
+	{
+		$$ = &ast.CreateDBLinkStmt{Name: $4, User: $7, Tenant: $9, Password: $12, Host: $14}
+	}
+
+DropDBLinkStmt:
+	"DELETE" "DATABASE" "LINK" Identifier
+	{
+		$$ = &ast.DropDBLinkStmt{Name: $4}
+	}
+|	"DROP" "DATABASE" "LINK" Identifier
+	{
+		$$ = &ast.DropDBLinkStmt{Name: $4}
+	}
+
+/***********************************************************************************
+ * SHOW Extensions (OceanBase extension)
+ ***********************************************************************************/
+
 SelectStmtBasic:
 	"SELECT" SelectStmtOpts SelectStmtFieldList
 	{
@@ -7262,7 +7955,9 @@ SelectStmt:
 	SelectStmtBasic OrderByOptional SelectStmtLimit SelectLockOpt SelectStmtIntoOption
 	{
 		st := $1.(*ast.SelectStmt)
-		st.LockTp = $4.(ast.SelectLockType)
+		lockOpt := $4.(*ast.SelectLockOption)
+		st.LockTp = lockOpt.LockTp
+		st.LockWaitSec = lockOpt.WaitSec
 		lastField := st.Fields.Fields[len(st.Fields.Fields)-1]
 		if lastField.Expr != nil && lastField.AsName.O == "" {
 			src := parser.src
@@ -7271,7 +7966,7 @@ SelectStmt:
 				lastEnd = yyS[yypt-3].offset - 1
 			} else if $3 != nil {
 				lastEnd = yyS[yypt-2].offset - 1
-			} else if $4 != ast.SelectLockNone {
+			} else if lockOpt.LockTp != ast.SelectLockNone {
 				lastEnd = yyS[yypt-1].offset - 1
 			} else if $5 != nil {
 				lastEnd = yyS[yypt].offset - 1
@@ -7297,13 +7992,15 @@ SelectStmt:
 |	SelectStmtFromDualTable OrderByOptional SelectStmtLimit SelectLockOpt SelectStmtIntoOption
 	{
 		st := $1.(*ast.SelectStmt)
+		lockOpt := $4.(*ast.SelectLockOption)
 		if $2 != nil {
 			st.OrderBy = $2.(*ast.OrderByClause)
 		}
 		if $3 != nil {
 			st.Limit = $3.(*ast.Limit)
 		}
-		st.LockTp = $4.(ast.SelectLockType)
+		st.LockTp = lockOpt.LockTp
+		st.LockWaitSec = lockOpt.WaitSec
 		if $5 != nil {
 			st.SelectIntoOpt = $5.(*ast.SelectIntoOption)
 		}
@@ -7312,7 +8009,9 @@ SelectStmt:
 |	SelectStmtFromTable OrderByOptional SelectStmtLimit SelectLockOpt SelectStmtIntoOption
 	{
 		st := $1.(*ast.SelectStmt)
-		st.LockTp = $4.(ast.SelectLockType)
+		lockOpt := $4.(*ast.SelectLockOption)
+		st.LockTp = lockOpt.LockTp
+		st.LockWaitSec = lockOpt.WaitSec
 		if $2 != nil {
 			st.OrderBy = $2.(*ast.OrderByClause)
 		}
@@ -8085,19 +8784,31 @@ SubSelect:
 SelectLockOpt:
 	/* empty */
 	{
-		$$ = ast.SelectLockNone
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockNone}
 	}
 |	"FOR" "UPDATE"
 	{
-		$$ = ast.SelectLockForUpdate
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdate}
 	}
 |	"FOR" "UPDATE" "NOWAIT"
 	{
-		$$ = ast.SelectLockForUpdateNoWait
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdateNoWait}
+	}
+|	"FOR" "UPDATE" "NO_WAIT"
+	{
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdateNoWait2}
+	}
+|	"FOR" "UPDATE" "WAIT" NUM
+	{
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdateWait, WaitSec: $4.(int64)}
+	}
+|	"FOR" "UPDATE" "SKIP" "LOCKED"
+	{
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdateSkipLocked}
 	}
 |	"LOCK" "IN" "SHARE" "MODE"
 	{
-		$$ = ast.SelectLockInShareMode
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockInShareMode}
 	}
 
 // See https://dev.mysql.com/doc/refman/5.7/en/union.html
@@ -8118,7 +8829,9 @@ UnionStmt:
 			union.Limit = $6.(*ast.Limit)
 		}
 		if $5 == nil && $6 == nil {
-			st.LockTp = $7.(ast.SelectLockType)
+			lockOpt := $7.(*ast.SelectLockOption)
+			st.LockTp = lockOpt.LockTp
+			st.LockWaitSec = lockOpt.WaitSec
 		}
 		$$ = union
 	}
@@ -8138,7 +8851,9 @@ UnionStmt:
 			union.Limit = $6.(*ast.Limit)
 		}
 		if $5 == nil && $6 == nil {
-			st.LockTp = $7.(ast.SelectLockType)
+			lockOpt := $7.(*ast.SelectLockOption)
+			st.LockTp = lockOpt.LockTp
+			st.LockWaitSec = lockOpt.WaitSec
 		}
 		$$ = union
 	}
@@ -8158,7 +8873,9 @@ UnionStmt:
 			union.Limit = $6.(*ast.Limit)
 		}
 		if $5 == nil && $6 == nil {
-			st.LockTp = $7.(ast.SelectLockType)
+			lockOpt := $7.(*ast.SelectLockOption)
+			st.LockTp = lockOpt.LockTp
+			st.LockWaitSec = lockOpt.WaitSec
 		}
 		$$ = union
 	}
@@ -8182,6 +8899,39 @@ UnionStmt:
 		}
 		$$ = union
 	}
+|	UnionClauseList "EXCEPT" UnionSelect %prec intersect
+	{
+		union := $1.(*ast.UnionStmt)
+		st := $3.(*ast.SelectStmt)
+		lastSelect := union.SelectList.Selects[len(union.SelectList.Selects)-1]
+		endOffset := parser.endOffset(&yyS[yypt-1])
+		parser.setLastSelectFieldText(lastSelect, endOffset)
+		union.SelectList.Ops = append(union.SelectList.Ops, ast.SetOpExcept)
+		union.SelectList.Selects = append(union.SelectList.Selects, st)
+		$$ = union
+	}
+|	UnionClauseList "INTERSECT" UnionSelect %prec intersect
+	{
+		union := $1.(*ast.UnionStmt)
+		st := $3.(*ast.SelectStmt)
+		lastSelect := union.SelectList.Selects[len(union.SelectList.Selects)-1]
+		endOffset := parser.endOffset(&yyS[yypt-1])
+		parser.setLastSelectFieldText(lastSelect, endOffset)
+		union.SelectList.Ops = append(union.SelectList.Ops, ast.SetOpIntersect)
+		union.SelectList.Selects = append(union.SelectList.Selects, st)
+		$$ = union
+	}
+|	UnionClauseList "MINUS" UnionSelect %prec intersect
+	{
+		union := $1.(*ast.UnionStmt)
+		st := $3.(*ast.SelectStmt)
+		lastSelect := union.SelectList.Selects[len(union.SelectList.Selects)-1]
+		endOffset := parser.endOffset(&yyS[yypt-1])
+		parser.setLastSelectFieldText(lastSelect, endOffset)
+		union.SelectList.Ops = append(union.SelectList.Ops, ast.SetOpMinus)
+		union.SelectList.Selects = append(union.SelectList.Selects, st)
+		$$ = union
+	}
 
 UnionClauseList:
 	UnionSelect
@@ -8191,7 +8941,7 @@ UnionClauseList:
 			SelectList: selectList,
 		}
 	}
-|	UnionClauseList "UNION" UnionOpt UnionSelect
+|	UnionClauseList "UNION" UnionOpt UnionSelect %prec intersect
 	{
 		union := $1.(*ast.UnionStmt)
 		st := $4.(*ast.SelectStmt)
@@ -8199,6 +8949,44 @@ UnionClauseList:
 		lastSelect := union.SelectList.Selects[len(union.SelectList.Selects)-1]
 		endOffset := parser.endOffset(&yyS[yypt-2])
 		parser.setLastSelectFieldText(lastSelect, endOffset)
+		op := ast.SetOpUnion
+		if !$3.(bool) {
+			op = ast.SetOpUnionAll
+		}
+		union.SelectList.Ops = append(union.SelectList.Ops, op)
+		union.SelectList.Selects = append(union.SelectList.Selects, st)
+		$$ = union
+	}
+|	UnionClauseList "EXCEPT" UnionSelect %prec intersect
+	{
+		union := $1.(*ast.UnionStmt)
+		st := $3.(*ast.SelectStmt)
+		lastSelect := union.SelectList.Selects[len(union.SelectList.Selects)-1]
+		endOffset := parser.endOffset(&yyS[yypt-1])
+		parser.setLastSelectFieldText(lastSelect, endOffset)
+		union.SelectList.Ops = append(union.SelectList.Ops, ast.SetOpExcept)
+		union.SelectList.Selects = append(union.SelectList.Selects, st)
+		$$ = union
+	}
+|	UnionClauseList "INTERSECT" UnionSelect %prec intersect
+	{
+		union := $1.(*ast.UnionStmt)
+		st := $3.(*ast.SelectStmt)
+		lastSelect := union.SelectList.Selects[len(union.SelectList.Selects)-1]
+		endOffset := parser.endOffset(&yyS[yypt-1])
+		parser.setLastSelectFieldText(lastSelect, endOffset)
+		union.SelectList.Ops = append(union.SelectList.Ops, ast.SetOpIntersect)
+		union.SelectList.Selects = append(union.SelectList.Selects, st)
+		$$ = union
+	}
+|	UnionClauseList "MINUS" UnionSelect %prec intersect
+	{
+		union := $1.(*ast.UnionStmt)
+		st := $3.(*ast.SelectStmt)
+		lastSelect := union.SelectList.Selects[len(union.SelectList.Selects)-1]
+		endOffset := parser.endOffset(&yyS[yypt-1])
+		parser.setLastSelectFieldText(lastSelect, endOffset)
+		union.SelectList.Ops = append(union.SelectList.Ops, ast.SetOpMinus)
 		union.SelectList.Selects = append(union.SelectList.Selects, st)
 		$$ = union
 	}
@@ -9318,6 +10106,30 @@ ShowTargetFilterable:
 	{
 		$$ = &ast.ShowStmt{Tp: ast.ShowImports}
 	}
+|	"RECYCLEBIN"
+	{
+		$$ = &ast.ShowStmt{Tp: ast.ShowRecyclebin}
+	}
+|	"TABLEGROUPS"
+	{
+		$$ = &ast.ShowStmt{Tp: ast.ShowTableGroups}
+	}
+|	"TABLEGROUP" "STATUS"
+	{
+		$$ = &ast.ShowStmt{Tp: ast.ShowTablegroupStatus}
+	}
+|	"OUTLINE"
+	{
+		$$ = &ast.ShowStmt{Tp: ast.ShowOutline}
+	}
+|	"SEQUENCES"
+	{
+		$$ = &ast.ShowStmt{Tp: ast.ShowSequences}
+	}
+|	"MATERIALIZED" "VIEWS"
+	{
+		$$ = &ast.ShowStmt{Tp: ast.ShowMaterializedViews}
+	}
 
 ShowLikeOrWhereOpt:
 	{
@@ -9516,6 +10328,7 @@ Statement:
 |	CreateRoleStmt
 |	CreateBindingStmt
 |	CreateSequenceStmt
+|	AlterSequenceStmt
 |	DoStmt
 |	DropDatabaseStmt
 |	DropIndexStmt
@@ -9562,6 +10375,25 @@ Statement:
 |	UnlockTablesStmt
 |	LockTablesStmt
 |	ShutdownStmt
+|	XAStmt
+|	RenameUserStmt
+|	OptimizeTableStmt
+|	ChecksumTableStmt
+|	CreateTablegroupStmt
+|	AlterTablegroupStmt
+|	DropTablegroupStmt
+|	CreateOutlineStmt
+|	AlterOutlineStmt
+|	DropOutlineStmt
+|	PurgeStmt
+|	FlashbackStmt
+|	CreateMaterializedViewStmt
+|	AlterMaterializedViewStmt
+|	DropMaterializedViewStmt
+|	CreateRestorePointStmt
+|	DropRestorePointStmt
+|	CreateDBLinkStmt
+|	DropDBLinkStmt
 
 TraceableStmt:
 	SelectStmt
@@ -9833,6 +10665,82 @@ TableOption:
 	{
 		// Parse it but will ignore it
 		$$ = &ast.TableOption{Tp: ast.TableOptionEncryption, StrValue: $3}
+	}
+|	"PCTFREE" EqOpt LengthNum
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionPCTFREE, UintValue: $3.(uint64)}
+	}
+|	"PARALLEL" EqOpt LengthNum
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionParallel, UintValue: $3.(uint64)}
+	}
+|	"NOPARALLEL"
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionParallel, BoolValue: true}
+	}
+|	"DUPLICATE_SCOPE" EqOpt stringLit
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionDuplicateScope, StrValue: $3}
+	}
+|	"TABLE_MODE" EqOpt stringLit
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionTableMode, StrValue: $3}
+	}
+|	"LOB_INROW_THRESHOLD" EqOpt LengthNum
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionLobInrowThreshold, UintValue: $3.(uint64)}
+	}
+|	"BLOCK_SIZE" EqOpt LengthNum
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionBlockSize, UintValue: $3.(uint64)}
+	}
+|	"TABLEGROUP" EqOpt Identifier
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionTablegroup, StrValue: $3}
+	}
+|	"TABLEGROUP" EqOpt stringLit
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionTablegroup, StrValue: $3}
+	}
+|	"ORGANIZATION" EqOpt "INDEX"
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionOrganization, Organization: ast.OrganizationIndex}
+	}
+|	"ORGANIZATION" EqOpt "HEAP"
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionOrganization, Organization: ast.OrganizationHeap}
+	}
+|	"READ" "ONLY"
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionReadOnly, BoolValue: true}
+	}
+|	"READ" "WRITE"
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionReadOnly, BoolValue: false}
+	}
+|	"ENABLE_MACRO_BLOCK_BLOOM_FILTER" EqOpt "TRUE"
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionMacroBlockBloomFilter, BoolValue: true}
+	}
+|	"ENABLE_MACRO_BLOCK_BLOOM_FILTER" EqOpt "FALSE"
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionMacroBlockBloomFilter, BoolValue: false}
+	}
+|	"DYNAMIC_PARTITION_POLICY" EqOpt '(' stringLit ')'
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionDynamicPartitionPolicy, StrValue: $4}
+	}
+|	"SEMISTRUCT_ENCODING_TYPE" EqOpt stringLit
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionSemistructEncodingType, StrValue: $3}
+	}
+|	"AUTO_INCREMENT_CACHE_SIZE" EqOpt LengthNum
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionAutoIncrementCacheSize, UintValue: $3.(uint64)}
+	}
+|	"MERGE_ENGINE" EqOpt Identifier
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionMergeEngine, StrValue: $3}
 	}
 
 StatsPersistentVal:
@@ -11871,6 +12779,31 @@ SequenceOption:
 |	"NO" "CYCLE"
 	{
 		$$ = &ast.SequenceOption{Tp: ast.SequenceNoCycle}
+	}
+|	"ORDER"
+	{
+		$$ = &ast.SequenceOption{Tp: ast.SequenceOrder}
+	}
+|	"NOORDER"
+	{
+		$$ = &ast.SequenceOption{Tp: ast.SequenceNoOrder}
+	}
+|	"RESTART" %prec lowerThanWithRollup
+	{
+		$$ = &ast.SequenceOption{Tp: ast.SequenceRestart}
+	}
+|	"RESTART" "START" "WITH" SignedNum
+	{
+		$$ = &ast.SequenceOption{Tp: ast.SequenceRestart, IntValue: $4.(int64)}
+	}
+
+AlterSequenceStmt:
+	"ALTER" "SEQUENCE" TableName SequenceOptionList
+	{
+		$$ = &ast.AlterSequenceStmt{
+			Name:       $3.(*ast.TableName),
+			SeqOptions: $4.([]*ast.SequenceOption),
+		}
 	}
 
 SignedNum:

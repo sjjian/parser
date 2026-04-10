@@ -62,6 +62,8 @@ const (
 	LeftJoin
 	// RightJoin is right Join type.
 	RightJoin
+	// FullJoin is full outer join type (OceanBase extension).
+	FullJoin
 )
 
 // Join represents table join.
@@ -184,6 +186,9 @@ type TableName struct {
 
 	IndexHints     []*IndexHint
 	PartitionNames []model.CIStr
+	// DBLink is the database link name for OceanBase's table@dblink syntax.
+	// Empty means a regular table reference.
+	DBLink model.CIStr
 }
 
 // Restore implements Node interface.
@@ -222,6 +227,10 @@ func (n *TableName) restoreIndexHints(ctx *format.RestoreCtx) error {
 
 func (n *TableName) Restore(ctx *format.RestoreCtx) error {
 	n.restoreName(ctx)
+	if n.DBLink.L != "" {
+		ctx.WritePlain("@")
+		ctx.WriteName(n.DBLink.O)
+	}
 	n.restorePartitions(ctx)
 	return n.restoreIndexHints(ctx)
 }
@@ -374,6 +383,78 @@ func (n *OnCondition) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
+// SampleScanType is the scan type for OceanBase's SAMPLE clause.
+type SampleScanType int
+
+const (
+	// SampleScanAll scans all data (default).
+	SampleScanAll SampleScanType = iota
+	// SampleScanBase scans only base data.
+	SampleScanBase
+	// SampleScanIncr scans only incremental data.
+	SampleScanIncr
+)
+
+// TableSampleClause represents OceanBase's SAMPLE [BLOCK] [ALL|BASE|INCR] (percent) [SEED(n)] clause.
+type TableSampleClause struct {
+	node
+	IsBlock  bool
+	ScanType SampleScanType
+	Percent  ExprNode
+	Seed     ExprNode // nil means SEED not specified
+}
+
+// Restore implements Node interface.
+func (n *TableSampleClause) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("SAMPLE")
+	if n.IsBlock {
+		ctx.WriteKeyWord(" BLOCK")
+	}
+	switch n.ScanType {
+	case SampleScanBase:
+		ctx.WriteKeyWord(" BASE")
+	case SampleScanIncr:
+		ctx.WriteKeyWord(" INCR")
+	}
+	ctx.WritePlain("(")
+	if err := n.Percent.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore TableSampleClause.Percent")
+	}
+	ctx.WritePlain(")")
+	if n.Seed != nil {
+		ctx.WriteKeyWord(" SEED(")
+		if err := n.Seed.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore TableSampleClause.Seed")
+		}
+		ctx.WritePlain(")")
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *TableSampleClause) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*TableSampleClause)
+	if n.Percent != nil {
+		node, ok := n.Percent.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Percent = node.(ExprNode)
+	}
+	if n.Seed != nil {
+		node, ok := n.Seed.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Seed = node.(ExprNode)
+	}
+	return v.Leave(n)
+}
+
 // TableSource represents table source with a name.
 type TableSource struct {
 	node
@@ -384,6 +465,9 @@ type TableSource struct {
 
 	// AsName is the alias name of the table source.
 	AsName model.CIStr
+
+	// Sample is the optional SAMPLE clause for OceanBase.
+	Sample *TableSampleClause
 }
 
 // Restore implements Node interface.
@@ -400,7 +484,17 @@ func (n *TableSource) Restore(ctx *format.RestoreCtx) error {
 		}
 
 		tn.restoreName(ctx)
+		if tn.DBLink.L != "" {
+			ctx.WritePlain("@")
+			ctx.WriteName(tn.DBLink.O)
+		}
 		tn.restorePartitions(ctx)
+		if n.Sample != nil {
+			ctx.WritePlain(" ")
+			if err := n.Sample.Restore(ctx); err != nil {
+				return errors.Annotate(err, "An error occurred while restore TableSource.Sample")
+			}
+		}
 
 		if asName := n.AsName.String(); asName != "" {
 			ctx.WriteKeyWord(" AS ")
@@ -444,6 +538,13 @@ func (n *TableSource) Accept(v Visitor) (Node, bool) {
 		return n, false
 	}
 	n.Source = node.(ResultSetNode)
+	if n.Sample != nil {
+		node, ok := n.Sample.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Sample = node.(*TableSampleClause)
+	}
 	return v.Leave(n)
 }
 
@@ -456,7 +557,20 @@ const (
 	SelectLockForUpdate
 	SelectLockInShareMode
 	SelectLockForUpdateNoWait
+	// SelectLockForUpdateWait is FOR UPDATE WAIT n (OceanBase extension).
+	SelectLockForUpdateWait
+	// SelectLockForUpdateNoWait2 is FOR UPDATE NO_WAIT with underscore (OceanBase extension).
+	SelectLockForUpdateNoWait2
+	// SelectLockForUpdateSkipLocked is FOR UPDATE SKIP LOCKED (OceanBase extension).
+	SelectLockForUpdateSkipLocked
 )
+
+// SelectLockOption carries the lock type and optional wait seconds for FOR UPDATE.
+// Used internally by the parser; the final values are written into SelectStmt fields.
+type SelectLockOption struct {
+	LockTp  SelectLockType
+	WaitSec int64
+}
 
 // String implements fmt.Stringer.
 func (slt SelectLockType) String() string {
@@ -469,6 +583,12 @@ func (slt SelectLockType) String() string {
 		return "in share mode"
 	case SelectLockForUpdateNoWait:
 		return "for update nowait"
+	case SelectLockForUpdateWait:
+		return "for update wait"
+	case SelectLockForUpdateNoWait2:
+		return "for update no_wait"
+	case SelectLockForUpdateSkipLocked:
+		return "for update skip locked"
 	}
 	return "unsupported select lock type"
 }
@@ -662,10 +782,86 @@ func (n *ByItem) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
+// GroupingSummaryType is the type of advanced GROUP BY summary option (OceanBase extension).
+type GroupingSummaryType int
+
+const (
+	// GroupingSetsType is GROUP BY GROUPING SETS (...).
+	GroupingSetsType GroupingSummaryType = iota
+	// RollupSummaryType is GROUP BY ROLLUP (...).
+	RollupSummaryType
+	// CubeSummaryType is GROUP BY CUBE (...).
+	CubeSummaryType
+)
+
+// GroupingSummary represents an advanced grouping clause: GROUPING SETS/ROLLUP/CUBE (OceanBase extension).
+// For GROUPING SETS, GroupSets holds multiple expression lists (one per group set).
+// For ROLLUP and CUBE, GroupSets holds a single expression list.
+type GroupingSummary struct {
+	node
+	Type      GroupingSummaryType
+	GroupSets [][]ExprNode
+}
+
+// Restore implements Node interface.
+func (n *GroupingSummary) Restore(ctx *format.RestoreCtx) error {
+	switch n.Type {
+	case GroupingSetsType:
+		ctx.WriteKeyWord("GROUPING SETS")
+	case RollupSummaryType:
+		ctx.WriteKeyWord("ROLLUP")
+	case CubeSummaryType:
+		ctx.WriteKeyWord("CUBE")
+	}
+	ctx.WritePlain("(")
+	for i, gs := range n.GroupSets {
+		if i != 0 {
+			ctx.WritePlain(", ")
+		}
+		if n.Type == GroupingSetsType && len(n.GroupSets) > 1 {
+			ctx.WritePlain("(")
+		}
+		for j, expr := range gs {
+			if j != 0 {
+				ctx.WritePlain(", ")
+			}
+			if err := expr.Restore(ctx); err != nil {
+				return errors.Annotatef(err, "An error occurred while restore GroupingSummary.GroupSets[%d][%d]", i, j)
+			}
+		}
+		if n.Type == GroupingSetsType && len(n.GroupSets) > 1 {
+			ctx.WritePlain(")")
+		}
+	}
+	ctx.WritePlain(")")
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *GroupingSummary) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*GroupingSummary)
+	for i, gs := range n.GroupSets {
+		for j, expr := range gs {
+			node, ok := expr.Accept(v)
+			if !ok {
+				return n, false
+			}
+			n.GroupSets[i][j] = node.(ExprNode)
+		}
+	}
+	return v.Leave(n)
+}
+
 // GroupByClause represents group by clause.
 type GroupByClause struct {
 	node
-	Items []*ByItem
+	Items   []*ByItem
+	Rollup  bool             // WITH ROLLUP (standard MySQL)
+	Summary *GroupingSummary // GROUPING SETS / ROLLUP(...) / CUBE(...) (OceanBase extension)
 }
 
 // Restore implements Node interface.
@@ -678,6 +874,17 @@ func (n *GroupByClause) Restore(ctx *format.RestoreCtx) error {
 		if err := v.Restore(ctx); err != nil {
 			return errors.Annotatef(err, "An error occurred while restore GroupByClause.Items[%d]", i)
 		}
+	}
+	if n.Summary != nil {
+		if len(n.Items) > 0 {
+			ctx.WritePlain(", ")
+		}
+		if err := n.Summary.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore GroupByClause.Summary")
+		}
+	}
+	if n.Rollup {
+		ctx.WriteKeyWord(" WITH ROLLUP")
 	}
 	return nil
 }
@@ -695,6 +902,13 @@ func (n *GroupByClause) Accept(v Visitor) (Node, bool) {
 			return n, false
 		}
 		n.Items[i] = node.(*ByItem)
+	}
+	if n.Summary != nil {
+		node, ok := n.Summary.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Summary = node.(*GroupingSummary)
 	}
 	return v.Leave(n)
 }
@@ -795,6 +1009,8 @@ type SelectStmt struct {
 	Limit *Limit
 	// LockTp is the lock type
 	LockTp SelectLockType
+	// LockWaitSec is the wait seconds for FOR UPDATE WAIT n (OceanBase extension). 0 means not set.
+	LockWaitSec int64
 	// TableHints represents the table level Optimizer Hint for join type
 	TableHints []*TableOptimizerHint
 	// IsAfterUnionDistinct indicates whether it's a stmt after "union distinct".
@@ -918,11 +1134,16 @@ func (n *SelectStmt) Restore(ctx *format.RestoreCtx) error {
 
 	switch n.LockTp {
 	case SelectLockInShareMode:
-		ctx.WriteKeyWord(" LOCK ")
-		ctx.WriteKeyWord(n.LockTp.String())
-	case SelectLockForUpdate, SelectLockForUpdateNoWait:
-		ctx.WritePlain(" ")
-		ctx.WriteKeyWord(n.LockTp.String())
+		ctx.WriteKeyWord(" LOCK IN SHARE MODE")
+	case SelectLockForUpdate:
+		ctx.WriteKeyWord(" FOR UPDATE")
+	case SelectLockForUpdateNoWait, SelectLockForUpdateNoWait2:
+		ctx.WriteKeyWord(" FOR UPDATE NOWAIT")
+	case SelectLockForUpdateWait:
+		ctx.WriteKeyWord(" FOR UPDATE WAIT")
+		ctx.WritePlainf(" %d", n.LockWaitSec)
+	case SelectLockForUpdateSkipLocked:
+		ctx.WriteKeyWord(" FOR UPDATE SKIP LOCKED")
 	}
 
 	if n.SelectIntoOpt != nil {
@@ -1021,20 +1242,56 @@ func (n *SelectStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
+// SetOperationType is the type of set operation between SELECT statements.
+type SetOperationType int
+
+const (
+	// SetOpUnion is UNION (distinct).
+	SetOpUnion SetOperationType = iota
+	// SetOpUnionAll is UNION ALL.
+	SetOpUnionAll
+	// SetOpExcept is EXCEPT (OceanBase extension).
+	SetOpExcept
+	// SetOpIntersect is INTERSECT (OceanBase extension).
+	SetOpIntersect
+	// SetOpMinus is MINUS, synonym for EXCEPT (OceanBase extension).
+	SetOpMinus
+)
+
 // UnionSelectList represents the select list in a union statement.
 type UnionSelectList struct {
 	node
 
 	Selects []*SelectStmt
+	// Ops holds the set operation between consecutive selects.
+	// len(Ops) == len(Selects)-1; Ops[i] is the operator between Selects[i] and Selects[i+1].
+	// nil or empty means all operations are UNION (backward compatible).
+	Ops []SetOperationType
 }
 
 // Restore implements Node interface.
 func (n *UnionSelectList) Restore(ctx *format.RestoreCtx) error {
 	for i, selectStmt := range n.Selects {
 		if i != 0 {
-			ctx.WriteKeyWord(" UNION ")
-			if !selectStmt.IsAfterUnionDistinct {
-				ctx.WriteKeyWord("ALL ")
+			op := SetOpUnion
+			if i-1 < len(n.Ops) {
+				op = n.Ops[i-1]
+			}
+			switch op {
+			case SetOpUnionAll:
+				ctx.WriteKeyWord(" UNION ALL ")
+			case SetOpExcept:
+				ctx.WriteKeyWord(" EXCEPT ")
+			case SetOpIntersect:
+				ctx.WriteKeyWord(" INTERSECT ")
+			case SetOpMinus:
+				ctx.WriteKeyWord(" MINUS ")
+			default:
+				// SetOpUnion: use IsAfterUnionDistinct for backward compat
+				ctx.WriteKeyWord(" UNION ")
+				if !selectStmt.IsAfterUnionDistinct {
+					ctx.WriteKeyWord("ALL ")
+				}
 			}
 		}
 		if selectStmt.IsInBraces {
@@ -1911,6 +2168,13 @@ const (
 	ShowBackups
 	ShowRestores
 	ShowImports
+	// OceanBase extensions
+	ShowRecyclebin
+	ShowTableGroups
+	ShowTablegroupStatus
+	ShowOutline
+	ShowSequences
+	ShowMaterializedViews
 )
 
 const (

@@ -50,6 +50,10 @@ var (
 	_ StmtNode = &CreateBindingStmt{}
 	_ StmtNode = &DropBindingStmt{}
 	_ StmtNode = &ShutdownStmt{}
+	_ StmtNode = &XAStmt{}
+	_ StmtNode = &RenameUserStmt{}
+	_ StmtNode = &OptimizeTableStmt{}
+	_ StmtNode = &ChecksumTableStmt{}
 
 	_ Node = &PrivElem{}
 	_ Node = &VariableAssignment{}
@@ -2243,6 +2247,217 @@ func (n *ShutdownStmt) Accept(v Visitor) (Node, bool) {
 		return v.Leave(newNode)
 	}
 	n = newNode.(*ShutdownStmt)
+	return v.Leave(n)
+}
+
+// XAStmtType is the XA transaction statement type (OceanBase extension).
+type XAStmtType int
+
+const (
+	XAStmtStart    XAStmtType = iota // XA START | BEGIN
+	XAStmtEnd                         // XA END
+	XAStmtPrepare                     // XA PREPARE
+	XAStmtCommit                      // XA COMMIT
+	XAStmtRollback                    // XA ROLLBACK
+	XAStmtRecover                     // XA RECOVER
+)
+
+// XAID represents a XA transaction identifier (xid).
+type XAID struct {
+	GTrID    string // global transaction identifier
+	BQual    string // branch qualifier (optional)
+	FormatID int64  // format id (default 1)
+}
+
+// XAStmt is a statement for XA distributed transaction management (OceanBase extension).
+type XAStmt struct {
+	stmtNode
+
+	Type           XAStmtType
+	XID            XAID
+	OnePhase       bool // COMMIT ONE PHASE
+	ConvertXID     bool // RECOVER CONVERT XID
+	Suspend        bool // END SUSPEND
+	SuspendMigrate bool // END SUSPEND FOR MIGRATE
+}
+
+// Restore implements Node interface.
+func (n *XAStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("XA ")
+	switch n.Type {
+	case XAStmtStart:
+		ctx.WriteKeyWord("START ")
+	case XAStmtEnd:
+		ctx.WriteKeyWord("END ")
+	case XAStmtPrepare:
+		ctx.WriteKeyWord("PREPARE ")
+	case XAStmtCommit:
+		ctx.WriteKeyWord("COMMIT ")
+	case XAStmtRollback:
+		ctx.WriteKeyWord("ROLLBACK ")
+	case XAStmtRecover:
+		ctx.WriteKeyWord("RECOVER")
+		if n.ConvertXID {
+			ctx.WriteKeyWord(" CONVERT XID")
+		}
+		return nil
+	}
+	// Write XID
+	ctx.WriteString(n.XID.GTrID)
+	if n.XID.BQual != "" {
+		ctx.WritePlain(", ")
+		ctx.WriteString(n.XID.BQual)
+		ctx.WritePlainf(", %d", n.XID.FormatID)
+	}
+	// Write trailing options
+	if n.Type == XAStmtCommit && n.OnePhase {
+		ctx.WriteKeyWord(" ONE PHASE")
+	}
+	if n.Type == XAStmtEnd && n.Suspend {
+		ctx.WriteKeyWord(" SUSPEND")
+		if n.SuspendMigrate {
+			ctx.WriteKeyWord(" FOR MIGRATE")
+		}
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *XAStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*XAStmt)
+	return v.Leave(n)
+}
+
+// RenameUserStmt is a statement to rename users (OceanBase extension).
+type RenameUserStmt struct {
+	stmtNode
+
+	UserToUsers []*UserToUser
+}
+
+// UserToUser holds old and new user names for RENAME USER.
+type UserToUser struct {
+	OldUser *auth.UserIdentity
+	NewUser *auth.UserIdentity
+}
+
+// Restore implements Node interface.
+func (n *RenameUserStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("RENAME USER ")
+	for i, u := range n.UserToUsers {
+		if i != 0 {
+			ctx.WritePlain(", ")
+		}
+		if err := u.OldUser.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while restore RenameUserStmt.UserToUsers[%d].OldUser", i)
+		}
+		ctx.WriteKeyWord(" TO ")
+		if err := u.NewUser.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while restore RenameUserStmt.UserToUsers[%d].NewUser", i)
+		}
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *RenameUserStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*RenameUserStmt)
+	return v.Leave(n)
+}
+
+// OptimizeTableStmt is a statement to optimize tables (OceanBase extension).
+type OptimizeTableStmt struct {
+	stmtNode
+
+	NoWriteToBinLog bool
+	Tables          []*TableName
+}
+
+// Restore implements Node interface.
+func (n *OptimizeTableStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("OPTIMIZE ")
+	if n.NoWriteToBinLog {
+		ctx.WriteKeyWord("NO_WRITE_TO_BINLOG ")
+	}
+	ctx.WriteKeyWord("TABLE ")
+	for i, t := range n.Tables {
+		if i != 0 {
+			ctx.WritePlain(", ")
+		}
+		if err := t.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while restore OptimizeTableStmt.Tables[%d]", i)
+		}
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *OptimizeTableStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*OptimizeTableStmt)
+	for i, t := range n.Tables {
+		node, ok := t.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Tables[i] = node.(*TableName)
+	}
+	return v.Leave(n)
+}
+
+// ChecksumTableStmt is a statement to checksum tables (OceanBase extension).
+type ChecksumTableStmt struct {
+	stmtNode
+
+	Tables   []*TableName
+	Extended bool
+	Quick    bool
+}
+
+// Restore implements Node interface.
+func (n *ChecksumTableStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("CHECKSUM TABLE ")
+	for i, t := range n.Tables {
+		if i != 0 {
+			ctx.WritePlain(", ")
+		}
+		if err := t.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while restore ChecksumTableStmt.Tables[%d]", i)
+		}
+	}
+	if n.Extended {
+		ctx.WriteKeyWord(" EXTENDED")
+	} else if n.Quick {
+		ctx.WriteKeyWord(" QUICK")
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *ChecksumTableStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*ChecksumTableStmt)
+	for i, t := range n.Tables {
+		node, ok := t.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Tables[i] = node.(*TableName)
+	}
 	return v.Leave(n)
 }
 

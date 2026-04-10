@@ -103,7 +103,9 @@ Alter table point_trans_shard_00_part_202401 ADD CONSTRAINT chk_point_trans_shar
 func TestPerfectParse(t *testing.T) {
 	parser := parser.New()
 
-	stmt, _, err := parser.PerfectParse("OPTIMIZE TABLE foo;", "", "")
+	// Use a statement that is not yet supported to test UnparsedStmt fallback.
+	// Note: OPTIMIZE TABLE is now supported (OceanBase extension), so use a non-existing syntax.
+	stmt, _, err := parser.PerfectParse("CACHE INDEX foo IN bar;", "", "")
 	if err != nil {
 		t.Error(err)
 		return

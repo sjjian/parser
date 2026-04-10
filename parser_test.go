@@ -2115,6 +2115,11 @@ func (s *testParserSuite) TestDDL(c *C) {
 		{"create database xxx default encryption 'Y'", true, "CREATE DATABASE `xxx` ENCRYPTION = 'Y'"},
 		{"create database xxx encryption = N", false, ""},
 
+		// OceanBase CREATE DATABASE: READ WRITE / READ ONLY / TABLEGROUP (see ob-mysql-compatibility-design B1a)
+		{"CREATE DATABASE db1 DEFAULT CHARACTER SET utf8mb4 READ WRITE", true, "CREATE DATABASE `db1` CHARACTER SET = utf8mb4 READ WRITE"},
+		{"CREATE DATABASE db1 READ ONLY DEFAULT CHARSET utf8mb4", true, "CREATE DATABASE `db1` READ ONLY CHARACTER SET = utf8mb4"},
+		{"ALTER DATABASE db1 READ WRITE", true, "ALTER DATABASE `db1` READ WRITE"},
+
 		{"create schema xxx", true, "CREATE DATABASE `xxx`"},
 		{"create schema if exists xxx", false, ""},
 		{"create schema if not exists xxx", true, "CREATE DATABASE IF NOT EXISTS `xxx`"},
@@ -5226,4 +5231,137 @@ func (s *testParserSuite) TestBRIE(c *C) {
 	}
 
 	s.RunTest(c, table)
+}
+
+// TestOceanBaseMySQL tests OceanBase MySQL mode specific SQL syntax extensions.
+func (s *testParserSuite) TestOceanBaseMySQL(c *C) {
+	table := []testCase{
+		// XA Transaction Statements
+		{"XA START 'xa1'", true, "XA START 'xa1'"},
+		{"XA BEGIN 'xa1'", true, "XA START 'xa1'"},
+		{"XA END 'xa1'", true, "XA END 'xa1'"},
+		{"XA END 'xa1' SUSPEND", true, "XA END 'xa1' SUSPEND"},
+		{"XA END 'xa1' SUSPEND FOR MIGRATE", true, "XA END 'xa1' SUSPEND FOR MIGRATE"},
+		{"XA PREPARE 'xa1'", true, "XA PREPARE 'xa1'"},
+		{"XA COMMIT 'xa1'", true, "XA COMMIT 'xa1'"},
+		{"XA COMMIT 'xa1' ONE PHASE", true, "XA COMMIT 'xa1' ONE PHASE"},
+		{"XA ROLLBACK 'xa1'", true, "XA ROLLBACK 'xa1'"},
+		{"XA RECOVER", true, "XA RECOVER"},
+		{"XA RECOVER CONVERT XID", true, "XA RECOVER CONVERT XID"},
+		{"XA START 'g1', 'b1', 1", true, "XA START 'g1'"},
+
+		// ALTER SEQUENCE
+		{"ALTER SEQUENCE seq1 MAXVALUE 1024 CYCLE", true, "ALTER SEQUENCE `seq1` MAXVALUE 1024 CYCLE"},
+		{"ALTER SEQUENCE seq1 ORDER NOCACHE", true, "ALTER SEQUENCE `seq1` ORDER NOCACHE"},
+		{"ALTER SEQUENCE seq1 RESTART", true, "ALTER SEQUENCE `seq1` RESTART"},
+		{"ALTER SEQUENCE seq1 RESTART START WITH 100", true, "ALTER SEQUENCE `seq1` RESTART START WITH 100"},
+		{"ALTER SEQUENCE seq1 NOORDER INCREMENT BY 5 NOCYCLE", true, "ALTER SEQUENCE `seq1` NOORDER INCREMENT BY 5 NOCYCLE"},
+
+		// RENAME USER
+		{"RENAME USER 'old'@'localhost' TO 'new'@'localhost'", true, "RENAME USER 'old'@'localhost' TO 'new'@'localhost'"},
+
+		// OPTIMIZE TABLE
+		{"OPTIMIZE TABLE t1", true, "OPTIMIZE TABLE `t1`"},
+		{"OPTIMIZE TABLE t1, t2", true, "OPTIMIZE TABLE `t1`, `t2`"},
+		{"OPTIMIZE NO_WRITE_TO_BINLOG TABLE t1", true, "OPTIMIZE NO_WRITE_TO_BINLOG TABLE `t1`"},
+		{"OPTIMIZE LOCAL TABLE t1", true, "OPTIMIZE NO_WRITE_TO_BINLOG TABLE `t1`"},
+
+		// CHECKSUM TABLE
+		{"CHECKSUM TABLE t1", true, "CHECKSUM TABLE `t1`"},
+		{"CHECKSUM TABLE t1 QUICK", true, "CHECKSUM TABLE `t1` QUICK"},
+		{"CHECKSUM TABLE t1 EXTENDED", true, "CHECKSUM TABLE `t1` EXTENDED"},
+		{"CHECKSUM TABLE t1, t2", true, "CHECKSUM TABLE `t1`, `t2`"},
+
+		// CREATE DATABASE (OceanBase): READ WRITE with charset
+		{"CREATE DATABASE db1 DEFAULT CHARACTER SET utf8mb4 READ WRITE", true, ""},
+		{"CREATE DATABASE db1 READ ONLY", true, ""},
+
+		// TABLEGROUP
+		{"CREATE TABLEGROUP tg1", true, "CREATE TABLEGROUP `tg1`"},
+		{"CREATE TABLEGROUP tg1 SHARDING = 'NONE'", true, "CREATE TABLEGROUP `tg1` SHARDING = 'NONE'"},
+		{"ALTER TABLEGROUP tg1 ADD t1, t2", true, "ALTER TABLEGROUP `tg1` ADD TABLE `t1`, `t2`"},
+		{"ALTER TABLEGROUP tg1 ADD TABLE t1, t2", true, "ALTER TABLEGROUP `tg1` ADD TABLE `t1`, `t2`"},
+		{"ALTER TABLEGROUP tg1 SHARDING = 'ADAPTIVE'", true, "ALTER TABLEGROUP `tg1` SHARDING = 'ADAPTIVE'"},
+		{"DROP TABLEGROUP tg1", true, "DROP TABLEGROUP `tg1`"},
+
+		// OUTLINE
+		{"CREATE OUTLINE o1 ON 'SELECT 1'", true, "CREATE OUTLINE `o1` ON 'SELECT 1'"},
+		{"CREATE OR REPLACE OUTLINE o1 ON 'SELECT 1'", true, "CREATE OR REPLACE OUTLINE `o1` ON 'SELECT 1'"},
+		{"CREATE OR REPLACE OUTLINE o1 ON 'SELECT 1' TO 'SELECT 2'", true, "CREATE OR REPLACE OUTLINE `o1` ON 'SELECT 1' TO 'SELECT 2'"},
+		{"CREATE FORMAT OUTLINE o1 ON 'SELECT 1'", true, "CREATE FORMAT OUTLINE `o1` ON 'SELECT 1'"},
+		{"ALTER OUTLINE o1 CONCURRENTLY ON 'SELECT 1'", true, "ALTER OUTLINE `o1` CONCURRENTLY ON 'SELECT 1'"},
+		{"DROP OUTLINE o1", true, "DROP OUTLINE `o1`"},
+
+		// PURGE
+		{"PURGE RECYCLEBIN", true, "PURGE RECYCLEBIN"},
+		{"PURGE TABLE __recycle_123", true, "PURGE TABLE __recycle_123"},
+		{"PURGE DATABASE __recycle_db", true, "PURGE DATABASE __recycle_db"},
+
+		// FLASHBACK
+		{"FLASHBACK TABLE t1 TO BEFORE DROP", true, "FLASHBACK TABLE `t1` TO BEFORE DROP"},
+		{"FLASHBACK TABLE t1 TO BEFORE DROP RENAME TO t2", true, "FLASHBACK TABLE `t1` TO BEFORE DROP RENAME TO `t2`"},
+		{"FLASHBACK DATABASE db1 TO BEFORE DROP", true, "FLASHBACK DATABASE `db1` TO BEFORE DROP"},
+
+		// CREATE/DROP RESTORE POINT
+		{"CREATE RESTORE POINT rp1", true, "CREATE RESTORE POINT `rp1`"},
+		{"DROP RESTORE POINT rp1", true, "DROP RESTORE POINT `rp1`"},
+
+		// CREATE TABLE: OceanBase-specific options
+		{"CREATE TABLE t1 (a INT) PCTFREE = 5", true, "CREATE TABLE `t1` (`a` INT) PCTFREE = 5"},
+		{"CREATE TABLE t1 (a INT) PARALLEL = 4", true, "CREATE TABLE `t1` (`a` INT) PARALLEL 4"},
+		{"CREATE TABLE t1 (a INT) NOPARALLEL", true, "CREATE TABLE `t1` (`a` INT) NOPARALLEL"},
+		{"CREATE TABLE t1 (a INT) TABLEGROUP = tg1", true, "CREATE TABLE `t1` (`a` INT) TABLEGROUP = `tg1`"},
+		{"CREATE TABLE t1 (a INT) ORGANIZATION = HEAP", true, "CREATE TABLE `t1` (`a` INT) ORGANIZATION = HEAP"},
+		{"CREATE TABLE t1 (a INT) READ ONLY", true, "CREATE TABLE `t1` (`a` INT) READ ONLY"},
+		{"CREATE TABLE t1 (a INT) READ WRITE", true, "CREATE TABLE `t1` (`a` INT) READ WRITE"},
+		{"CREATE TABLE t1 (a INT) DUPLICATE_SCOPE = 'cluster'", true, "CREATE TABLE `t1` (`a` INT) DUPLICATE_SCOPE = 'cluster'"},
+		{"CREATE TABLE t1 (a INT) TABLE_MODE = 'QUEUING'", true, "CREATE TABLE `t1` (`a` INT) TABLE_MODE = 'QUEUING'"},
+		{"CREATE TABLE t1 (a INT) BLOCK_SIZE = 16384", true, "CREATE TABLE `t1` (`a` INT) BLOCK_SIZE = 16384"},
+		{"CREATE TABLE t1 (a INT) MERGE_ENGINE = delete_insert", true, "CREATE TABLE `t1` (`a` INT) MERGE_ENGINE = DELETE_INSERT"},
+		{"CREATE TABLE t1 (a INT SKIP_INDEX(MIN_MAX, SUM))", true, "CREATE TABLE `t1` (`a` INT)"},
+
+		// CREATE TABLE: INDEX with OceanBase options
+		{"CREATE TABLE t1 (a INT, INDEX i1(a) GLOBAL)", true, "CREATE TABLE `t1` (`a` INT,INDEX `i1`(`a`) GLOBAL)"},
+		{"CREATE TABLE t1 (a INT, INDEX i1(a) LOCAL)", true, "CREATE TABLE `t1` (`a` INT,INDEX `i1`(`a`) LOCAL)"},
+		{"CREATE TABLE t1 (a INT, INDEX i1(a) BLOCK_SIZE 16384)", true, "CREATE TABLE `t1` (`a` INT,INDEX `i1`(`a`) BLOCK_SIZE 16384)"},
+		{"CREATE TABLE t1 (a INT, INDEX i1(a) STORING (a))", true, "CREATE TABLE `t1` (`a` INT,INDEX `i1`(`a`) STORING(`a`))"},
+
+		// SELECT extensions
+		{"SELECT UNIQUE col1 FROM t1", true, "SELECT DISTINCT `col1` FROM `t1`"},
+		{"SELECT * FROM t1 FOR UPDATE WAIT 5", true, "SELECT * FROM `t1` FOR UPDATE WAIT 5"},
+		{"SELECT * FROM t1 FOR UPDATE NO_WAIT", true, "SELECT * FROM `t1` FOR UPDATE NOWAIT"},
+		{"SELECT * FROM t1 FOR UPDATE SKIP LOCKED", true, "SELECT * FROM `t1` FOR UPDATE SKIP LOCKED"},
+		{"SELECT * FROM t1 GROUP BY GROUPING SETS ((a), (b))", true, "SELECT * FROM `t1` GROUP BY GROUPING SETS((a), (b))"},
+		{"SELECT * FROM t1 GROUP BY ROLLUP (a, b)", true, "SELECT * FROM `t1` GROUP BY ROLLUP(a, b)"},
+		{"SELECT * FROM t1 GROUP BY CUBE (a, b)", true, "SELECT * FROM `t1` GROUP BY CUBE(a, b)"},
+		{"SELECT * FROM t1 GROUP BY a WITH ROLLUP", true, "SELECT * FROM `t1` GROUP BY `a` WITH ROLLUP"},
+
+		// Set operations
+		{"SELECT 1 EXCEPT SELECT 2", true, "SELECT 1\nEXCEPT \nSELECT 2"},
+		{"SELECT 1 INTERSECT SELECT 2", true, "SELECT 1\nINTERSECT \nSELECT 2"},
+		{"SELECT 1 MINUS SELECT 2", true, "SELECT 1\nMINUS \nSELECT 2"},
+
+		// SHOW extensions
+		{"SHOW RECYCLEBIN", true, "SHOW RECYCLEBIN"},
+		{"SHOW TABLEGROUPS", true, "SHOW TABLEGROUPS"},
+		{"SHOW OUTLINE", true, "SHOW OUTLINE"},
+		{"SHOW SEQUENCES", true, "SHOW SEQUENCES"},
+		{"SHOW MATERIALIZED VIEWS", true, "SHOW MATERIALIZED VIEWS"},
+
+		// CREATE SEQUENCE with ORDER/NOORDER
+		{"CREATE SEQUENCE s1 START WITH 1 ORDER", true, "CREATE SEQUENCE `s1` START WITH 1 ORDER"},
+		{"CREATE SEQUENCE s1 NOORDER", true, "CREATE SEQUENCE `s1` NOORDER"},
+	}
+
+	p := parser.New()
+	for _, t := range table {
+		stmts, _, err := p.Parse(t.src, "", "")
+		comment := Commentf("source %v", t.src)
+		if !t.ok {
+			c.Assert(err, NotNil, comment)
+			continue
+		}
+		c.Assert(err, IsNil, comment)
+		c.Assert(len(stmts), GreaterEqual, 1, comment)
+	}
 }

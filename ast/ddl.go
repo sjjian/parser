@@ -30,6 +30,21 @@ var (
 	_ DDLNode = &CreateTableStmt{}
 	_ DDLNode = &CreateViewStmt{}
 	_ DDLNode = &CreateSequenceStmt{}
+	_ DDLNode = &AlterSequenceStmt{}
+	_ DDLNode = &CreateTablegroupStmt{}
+	_ DDLNode = &AlterTablegroupStmt{}
+	_ DDLNode = &DropTablegroupStmt{}
+	_ DDLNode = &CreateOutlineStmt{}
+	_ DDLNode = &AlterOutlineStmt{}
+	_ DDLNode = &DropOutlineStmt{}
+	_ DDLNode = &PurgeStmt{}
+	_ DDLNode = &CreateMaterializedViewStmt{}
+	_ DDLNode = &AlterMaterializedViewStmt{}
+	_ DDLNode = &DropMaterializedViewStmt{}
+	_ DDLNode = &CreateRestorePointStmt{}
+	_ DDLNode = &DropRestorePointStmt{}
+	_ DDLNode = &CreateDBLinkStmt{}
+	_ DDLNode = &DropDBLinkStmt{}
 	_ DDLNode = &DropDatabaseStmt{}
 	_ DDLNode = &DropIndexStmt{}
 	_ DDLNode = &DropTableStmt{}
@@ -62,6 +77,9 @@ const (
 	DatabaseOptionCharset
 	DatabaseOptionCollate
 	DatabaseOptionEncryption
+	// OceanBase CREATE/ALTER DATABASE: READ ONLY | READ WRITE
+	DatabaseOptionReadOnly
+	DatabaseOptionReadWrite
 )
 
 // DatabaseOption represents database option.
@@ -85,6 +103,10 @@ func (n *DatabaseOption) Restore(ctx *format.RestoreCtx) error {
 		ctx.WriteKeyWord("ENCRYPTION")
 		ctx.WritePlain(" = ")
 		ctx.WriteString(n.Value)
+	case DatabaseOptionReadOnly:
+		ctx.WriteKeyWord("READ ONLY")
+	case DatabaseOptionReadWrite:
+		ctx.WriteKeyWord("READ WRITE")
 	default:
 		return errors.Errorf("invalid DatabaseOptionType: %d", n.Tp)
 	}
@@ -600,11 +622,18 @@ const (
 type IndexOption struct {
 	node
 
-	KeyBlockSize uint64
-	Tp           model.IndexType
-	Comment      string
-	ParserName   model.CIStr
-	Visibility   IndexVisibility
+	KeyBlockSize     uint64
+	Tp               model.IndexType
+	Comment          string
+	ParserName       model.CIStr
+	Visibility       IndexVisibility
+	// OceanBase extensions
+	IsGlobal         bool
+	IsLocal          bool
+	StoringCols      []*ColumnName
+	BlockSize        uint64   // OceanBase BLOCK_SIZE (distinct from KeyBlockSize/KEY_BLOCK_SIZE)
+	IndexCompression string   // OceanBase COMPRESSION = 'lz4'
+	ParserProperties map[string]string // PARSER_PROPERTIES=(key=val)
 }
 
 // Restore implements Node interface.
@@ -653,6 +682,55 @@ func (n *IndexOption) Restore(ctx *format.RestoreCtx) error {
 		case IndexVisibilityInvisible:
 			ctx.WriteKeyWord("INVISIBLE")
 		}
+		hasPrevOption = true
+	}
+
+	if n.IsGlobal {
+		if hasPrevOption {
+			ctx.WritePlain(" ")
+		}
+		ctx.WriteKeyWord("GLOBAL")
+		hasPrevOption = true
+	} else if n.IsLocal {
+		if hasPrevOption {
+			ctx.WritePlain(" ")
+		}
+		ctx.WriteKeyWord("LOCAL")
+		hasPrevOption = true
+	}
+
+	if n.BlockSize > 0 {
+		if hasPrevOption {
+			ctx.WritePlain(" ")
+		}
+		ctx.WriteKeyWord("BLOCK_SIZE ")
+		ctx.WritePlainf("%d", n.BlockSize)
+		hasPrevOption = true
+	}
+
+	if n.IndexCompression != "" {
+		if hasPrevOption {
+			ctx.WritePlain(" ")
+		}
+		ctx.WriteKeyWord("COMPRESSION ")
+		ctx.WriteString(n.IndexCompression)
+		hasPrevOption = true
+	}
+
+	if len(n.StoringCols) > 0 {
+		if hasPrevOption {
+			ctx.WritePlain(" ")
+		}
+		ctx.WriteKeyWord("STORING(")
+		for i, col := range n.StoringCols {
+			if i != 0 {
+				ctx.WritePlain(", ")
+			}
+			if err := col.Restore(ctx); err != nil {
+				return errors.Annotatef(err, "An error occurred while restore IndexOption.StoringCols[%d]", i)
+			}
+		}
+		ctx.WritePlain(")")
 	}
 	return nil
 }
@@ -664,6 +742,13 @@ func (n *IndexOption) Accept(v Visitor) (Node, bool) {
 		return v.Leave(newNode)
 	}
 	n = newNode.(*IndexOption)
+	for i, col := range n.StoringCols {
+		node, ok := col.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.StoringCols[i] = node.(*ColumnName)
+	}
 	return v.Leave(n)
 }
 
@@ -826,13 +911,42 @@ func (n *Constraint) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
+// SkipIndexType is the type for OceanBase's SKIP_INDEX column attribute.
+type SkipIndexType int
+
+const (
+	SkipIndexMinMax SkipIndexType = iota // MIN_MAX
+	SkipIndexSum                          // SUM
+)
+
+// ColumnGroupOption represents the WITH COLUMN GROUP(...) clause (OceanBase extension).
+type ColumnGroupOption struct {
+	AllColumns bool
+	EachColumn bool
+}
+
+// Restore writes the column group option to the context.
+func (n *ColumnGroupOption) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("WITH COLUMN GROUP(")
+	if n.AllColumns && n.EachColumn {
+		ctx.WriteKeyWord("all columns, each column")
+	} else if n.AllColumns {
+		ctx.WriteKeyWord("all columns")
+	} else if n.EachColumn {
+		ctx.WriteKeyWord("each column")
+	}
+	ctx.WritePlain(")")
+	return nil
+}
+
 // ColumnDef is used for parsing column definition from SQL.
 type ColumnDef struct {
 	node
 
-	Name    *ColumnName
-	Tp      *types.FieldType
-	Options []*ColumnOption
+	Name      *ColumnName
+	Tp        *types.FieldType
+	Options   []*ColumnOption
+	SkipIndex []SkipIndexType // OceanBase SKIP_INDEX attribute
 }
 
 // Restore implements Node interface.
@@ -910,6 +1024,10 @@ type CreateTableStmt struct {
 	Partition        *PartitionOptions
 	OnDuplicate      OnDuplicateKeyHandlingType
 	Select           ResultSetNode
+	// OceanBase extensions
+	ColumnGroupOpts  *ColumnGroupOption
+	TableHints       []*TableOptimizerHint
+	MergeEngine      string // MERGE_ENGINE value when placed at top-level (before ColumnGroup)
 }
 
 // Restore implements Node interface.
@@ -1070,7 +1188,7 @@ func (n *DropTableStmt) Restore(ctx *format.RestoreCtx) error {
 			ctx.WritePlain(", ")
 		}
 		if err := table.Restore(ctx); err != nil {
-			return errors.Annotate(err, "An error occurred while restore DropTableStmt.Tables "+string(index))
+			return errors.Annotatef(err, "An error occurred while restore DropTableStmt.Tables[%d]", index)
 		}
 	}
 
@@ -1368,6 +1486,44 @@ func (n *CreateSequenceStmt) Accept(v Visitor) (Node, bool) {
 		return v.Leave(newNode)
 	}
 	n = newNode.(*CreateSequenceStmt)
+	node, ok := n.Name.Accept(v)
+	if !ok {
+		return n, false
+	}
+	n.Name = node.(*TableName)
+	return v.Leave(n)
+}
+
+// AlterSequenceStmt is a statement to alter a Sequence (OceanBase extension).
+type AlterSequenceStmt struct {
+	ddlNode
+
+	Name       *TableName
+	SeqOptions []*SequenceOption
+}
+
+// Restore implements Node interface.
+func (n *AlterSequenceStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("ALTER SEQUENCE ")
+	if err := n.Name.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore AlterSequenceStmt.Name")
+	}
+	for i, option := range n.SeqOptions {
+		ctx.WritePlain(" ")
+		if err := option.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while splicing AlterSequenceStmt SequenceOption[%d]", i)
+		}
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *AlterSequenceStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*AlterSequenceStmt)
 	node, ok := n.Name.Accept(v)
 	if !ok {
 		return n, false
@@ -1765,6 +1921,29 @@ const (
 	TableOptionTableCheckSum
 	TableOptionUnion
 	TableOptionEncryption
+	// OceanBase-specific table options
+	TableOptionPCTFREE
+	TableOptionParallel
+	TableOptionDuplicateScope
+	TableOptionTableMode
+	TableOptionLobInrowThreshold
+	TableOptionBlockSize
+	TableOptionTablegroup
+	TableOptionOrganization
+	TableOptionReadOnly
+	TableOptionMacroBlockBloomFilter
+	TableOptionDynamicPartitionPolicy
+	TableOptionSemistructEncodingType
+	TableOptionAutoIncrementCacheSize
+	TableOptionMergeEngine
+)
+
+// OrganizationType is the organization type for OceanBase tables.
+type OrganizationType int
+
+const (
+	OrganizationHeap  OrganizationType = iota // HEAP (default)
+	OrganizationIndex                          // INDEX
 )
 
 // RowFormat types
@@ -1804,11 +1983,13 @@ const (
 
 // TableOption is used for parsing table option from SQL.
 type TableOption struct {
-	Tp         TableOptionType
-	Default    bool
-	StrValue   string
-	UintValue  uint64
-	TableNames []*TableName
+	Tp           TableOptionType
+	Default      bool
+	StrValue     string
+	UintValue    uint64
+	TableNames   []*TableName
+	Organization OrganizationType // for TableOptionOrganization
+	BoolValue    bool             // for TableOptionReadOnly, TableOptionMacroBlockBloomFilter etc.
 }
 
 func (n *TableOption) Restore(ctx *format.RestoreCtx) error {
@@ -2017,6 +2198,72 @@ func (n *TableOption) Restore(ctx *format.RestoreCtx) error {
 		ctx.WriteKeyWord("ENCRYPTION ")
 		ctx.WritePlain("= ")
 		ctx.WriteString(n.StrValue)
+	case TableOptionPCTFREE:
+		ctx.WriteKeyWord("PCTFREE ")
+		ctx.WritePlainf("= %d", n.UintValue)
+	case TableOptionParallel:
+		if n.BoolValue {
+			ctx.WriteKeyWord("NOPARALLEL")
+		} else {
+			ctx.WriteKeyWord("PARALLEL ")
+			ctx.WritePlainf("%d", n.UintValue)
+		}
+	case TableOptionDuplicateScope:
+		ctx.WriteKeyWord("DUPLICATE_SCOPE ")
+		ctx.WritePlain("= ")
+		ctx.WriteString(n.StrValue)
+	case TableOptionTableMode:
+		ctx.WriteKeyWord("TABLE_MODE ")
+		ctx.WritePlain("= ")
+		ctx.WriteString(n.StrValue)
+	case TableOptionLobInrowThreshold:
+		ctx.WriteKeyWord("LOB_INROW_THRESHOLD ")
+		ctx.WritePlainf("= %d", n.UintValue)
+	case TableOptionBlockSize:
+		ctx.WriteKeyWord("BLOCK_SIZE ")
+		ctx.WritePlainf("= %d", n.UintValue)
+	case TableOptionTablegroup:
+		ctx.WriteKeyWord("TABLEGROUP ")
+		ctx.WritePlain("= ")
+		ctx.WriteName(n.StrValue)
+	case TableOptionOrganization:
+		ctx.WriteKeyWord("ORGANIZATION = ")
+		switch n.Organization {
+		case OrganizationIndex:
+			ctx.WriteKeyWord("INDEX")
+		default:
+			ctx.WriteKeyWord("HEAP")
+		}
+	case TableOptionReadOnly:
+		ctx.WriteKeyWord("READ ")
+		if n.BoolValue {
+			ctx.WriteKeyWord("ONLY")
+		} else {
+			ctx.WriteKeyWord("WRITE")
+		}
+	case TableOptionMacroBlockBloomFilter:
+		ctx.WriteKeyWord("ENABLE_MACRO_BLOCK_BLOOM_FILTER ")
+		ctx.WritePlain("= ")
+		if n.BoolValue {
+			ctx.WriteKeyWord("TRUE")
+		} else {
+			ctx.WriteKeyWord("FALSE")
+		}
+	case TableOptionDynamicPartitionPolicy:
+		ctx.WriteKeyWord("DYNAMIC_PARTITION_POLICY ")
+		ctx.WritePlain("= ")
+		ctx.WriteString(n.StrValue)
+	case TableOptionSemistructEncodingType:
+		ctx.WriteKeyWord("SEMISTRUCT_ENCODING_TYPE ")
+		ctx.WritePlain("= ")
+		ctx.WriteString(n.StrValue)
+	case TableOptionAutoIncrementCacheSize:
+		ctx.WriteKeyWord("AUTO_INCREMENT_CACHE_SIZE ")
+		ctx.WritePlainf("= %d", n.UintValue)
+	case TableOptionMergeEngine:
+		ctx.WriteKeyWord("MERGE_ENGINE ")
+		ctx.WritePlain("= ")
+		ctx.WriteKeyWord(n.StrValue)
 	default:
 		return errors.Errorf("invalid TableOption: %d", n.Tp)
 	}
@@ -2039,6 +2286,10 @@ const (
 	SequenceCache
 	SequenceNoCycle
 	SequenceCycle
+	// OceanBase extensions
+	SequenceOrder
+	SequenceNoOrder
+	SequenceRestart // ALTER SEQUENCE only: RESTART [START WITH n]
 )
 
 // SequenceOption is used for parsing sequence option from SQL.
@@ -2074,6 +2325,16 @@ func (n *SequenceOption) Restore(ctx *format.RestoreCtx) error {
 		ctx.WriteKeyWord("NOCYCLE")
 	case SequenceCycle:
 		ctx.WriteKeyWord("CYCLE")
+	case SequenceOrder:
+		ctx.WriteKeyWord("ORDER")
+	case SequenceNoOrder:
+		ctx.WriteKeyWord("NOORDER")
+	case SequenceRestart:
+		ctx.WriteKeyWord("RESTART")
+		if n.IntValue != 0 {
+			ctx.WriteKeyWord(" START WITH ")
+			ctx.WritePlainf("%d", n.IntValue)
+		}
 	default:
 		return errors.Errorf("invalid SequenceOption: %d", n.Tp)
 	}
@@ -2088,6 +2349,7 @@ const (
 	ColumnPositionNone ColumnPositionType = iota
 	ColumnPositionFirst
 	ColumnPositionAfter
+	ColumnPositionBefore // OceanBase extension: BEFORE column_name
 )
 
 // ColumnPosition represent the position of the newly added column
@@ -2108,6 +2370,11 @@ func (n *ColumnPosition) Restore(ctx *format.RestoreCtx) error {
 		ctx.WriteKeyWord("FIRST")
 	case ColumnPositionAfter:
 		ctx.WriteKeyWord("AFTER ")
+		if err := n.RelativeColumn.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore ColumnPosition.RelativeColumn")
+		}
+	case ColumnPositionBefore:
+		ctx.WriteKeyWord("BEFORE ")
 		if err := n.RelativeColumn.Restore(ctx); err != nil {
 			return errors.Annotate(err, "An error occurred while restore ColumnPosition.RelativeColumn")
 		}
@@ -2184,6 +2451,15 @@ const (
 	AlterTableOrderByColumns
 	// AlterTableSetTiFlashReplica uses to set the table TiFlash replica.
 	AlterTableSetTiFlashReplica
+	// OceanBase extensions
+	AlterTableDropTableGroup          // DROP TABLEGROUP
+	AlterTableAddColumnGroup          // ADD COLUMN GROUP(...)
+	AlterTableDropColumnGroup         // DROP COLUMN GROUP(...)
+	AlterTableModifyPartitionAddSubPartition // MODIFY PARTITION p ADD SUBPARTITION (...)
+	AlterTableExchangePartitionOB     // EXCHANGE PARTITION p WITH TABLE t WITHOUT VALIDATION
+	AlterTableReorganizePartitionOB   // REORGANIZE PARTITION p INTO (...)
+	AlterTablePartitionBy             // PARTITION BY ... (re-partition)
+	AlterTableTruncateSubPartition    // TRUNCATE SUBPARTITION p
 )
 
 // LockType is the type for AlterTableSpec.
@@ -3249,8 +3525,9 @@ func (t *TdSqlDistributed) Validate() error {
 type PartitionOptions struct {
 	node
 	PartitionMethod
-	Sub         *PartitionMethod
-	Definitions []*PartitionDefinition
+	Sub               *PartitionMethod
+	Definitions       []*PartitionDefinition
+	AutoPartitionSize string // OceanBase: PARTITION BY RANGE COLUMNS SIZE('1G')
 }
 
 // Validate checks if the partition is well-formed.
@@ -3412,21 +3689,46 @@ func (n *RecoverTableStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
-// FlashBackTableStmt is a statement to restore a dropped/truncate table.
+// FlashBackObjectType is the object type for FLASHBACK statement (OceanBase extension).
+type FlashBackObjectType int
+
+const (
+	FlashBackTable    FlashBackObjectType = iota // TABLE (default, backward compatible)
+	FlashBackDatabase                             // DATABASE
+	FlashBackTenant                               // TENANT
+)
+
+// FlashBackTableStmt is a statement to restore a dropped/truncate table (extended for DATABASE/TENANT in OceanBase).
 type FlashBackTableStmt struct {
 	ddlNode
 
-	Table   *TableName
-	NewName string
+	Table        *TableName
+	NewName      string
+	ObjectType   FlashBackObjectType // OceanBase extension: Database/Tenant
+	ToBeforeDrop bool                // OceanBase: TO BEFORE DROP
 }
 
 // Restore implements Node interface.
 func (n *FlashBackTableStmt) Restore(ctx *format.RestoreCtx) error {
-	ctx.WriteKeyWord("FLASHBACK TABLE ")
-	if err := n.Table.Restore(ctx); err != nil {
-		return errors.Annotate(err, "An error occurred while splicing RecoverTableStmt Table")
+	ctx.WriteKeyWord("FLASHBACK ")
+	switch n.ObjectType {
+	case FlashBackDatabase:
+		ctx.WriteKeyWord("DATABASE ")
+	case FlashBackTenant:
+		ctx.WriteKeyWord("TENANT ")
+	default:
+		ctx.WriteKeyWord("TABLE ")
 	}
-	if len(n.NewName) > 0 {
+	if err := n.Table.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while splicing FlashBackTableStmt Table")
+	}
+	if n.ToBeforeDrop {
+		ctx.WriteKeyWord(" TO BEFORE DROP")
+		if len(n.NewName) > 0 {
+			ctx.WriteKeyWord(" RENAME TO ")
+			ctx.WriteName(n.NewName)
+		}
+	} else if len(n.NewName) > 0 {
 		ctx.WriteKeyWord(" TO ")
 		ctx.WriteName(n.NewName)
 	}
@@ -3448,5 +3750,610 @@ func (n *FlashBackTableStmt) Accept(v Visitor) (Node, bool) {
 		}
 		n.Table = node.(*TableName)
 	}
+	return v.Leave(n)
+}
+
+// ============================================================
+// OceanBase Phase 3: New DDL Statement Nodes
+// ============================================================
+
+// CreateTablegroupStmt is a statement to create a table group (OceanBase extension).
+type CreateTablegroupStmt struct {
+	ddlNode
+
+	Name     string
+	Sharding string // SHARDING = 'NONE'|'PARTITION'|'ADAPTIVE'
+}
+
+// Restore implements Node interface.
+func (n *CreateTablegroupStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("CREATE TABLEGROUP ")
+	ctx.WriteName(n.Name)
+	if n.Sharding != "" {
+		ctx.WriteKeyWord(" SHARDING = ")
+		ctx.WriteString(n.Sharding)
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *CreateTablegroupStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*CreateTablegroupStmt)
+	return v.Leave(n)
+}
+
+// AlterTablegroupType is the action type for ALTER TABLEGROUP.
+type AlterTablegroupType int
+
+const (
+	AlterTablegroupAddTable AlterTablegroupType = iota
+	AlterTablegroupSetSharding
+)
+
+// AlterTablegroupStmt is a statement to alter a table group (OceanBase extension).
+type AlterTablegroupStmt struct {
+	ddlNode
+
+	Name     string
+	Action   AlterTablegroupType
+	Tables   []*TableName // for ADD TABLE
+	Sharding string       // for SHARDING = ...
+}
+
+// Restore implements Node interface.
+func (n *AlterTablegroupStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("ALTER TABLEGROUP ")
+	ctx.WriteName(n.Name)
+	switch n.Action {
+	case AlterTablegroupAddTable:
+		ctx.WriteKeyWord(" ADD TABLE ")
+		for i, t := range n.Tables {
+			if i != 0 {
+				ctx.WritePlain(", ")
+			}
+			if err := t.Restore(ctx); err != nil {
+				return errors.Annotatef(err, "An error occurred while restore AlterTablegroupStmt.Tables[%d]", i)
+			}
+		}
+	case AlterTablegroupSetSharding:
+		ctx.WriteKeyWord(" SHARDING = ")
+		ctx.WriteString(n.Sharding)
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *AlterTablegroupStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*AlterTablegroupStmt)
+	for i, t := range n.Tables {
+		node, ok := t.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Tables[i] = node.(*TableName)
+	}
+	return v.Leave(n)
+}
+
+// DropTablegroupStmt is a statement to drop a table group (OceanBase extension).
+type DropTablegroupStmt struct {
+	ddlNode
+
+	Name string
+}
+
+// Restore implements Node interface.
+func (n *DropTablegroupStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("DROP TABLEGROUP ")
+	ctx.WriteName(n.Name)
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *DropTablegroupStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*DropTablegroupStmt)
+	return v.Leave(n)
+}
+
+// CreateOutlineStmt is a statement to create an outline (OceanBase execution plan binding).
+type CreateOutlineStmt struct {
+	ddlNode
+
+	Name      string
+	OrReplace bool
+	IsFormat  bool   // CREATE FORMAT OUTLINE
+	OnSQL     string // SQL_TEXT or SQL_ID
+	UsingHint string // USING HINT hint
+	ToSQL     string // TO target_stmt
+}
+
+// Restore implements Node interface.
+func (n *CreateOutlineStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("CREATE ")
+	if n.OrReplace {
+		ctx.WriteKeyWord("OR REPLACE ")
+	}
+	if n.IsFormat {
+		ctx.WriteKeyWord("FORMAT ")
+	}
+	ctx.WriteKeyWord("OUTLINE ")
+	ctx.WriteName(n.Name)
+	ctx.WriteKeyWord(" ON ")
+	ctx.WriteString(n.OnSQL)
+	if n.UsingHint != "" {
+		ctx.WriteKeyWord(" USING HINT ")
+		ctx.WriteString(n.UsingHint)
+	}
+	if n.ToSQL != "" {
+		ctx.WriteKeyWord(" TO ")
+		ctx.WriteString(n.ToSQL)
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *CreateOutlineStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*CreateOutlineStmt)
+	return v.Leave(n)
+}
+
+// AlterOutlineStmt is a statement to alter an outline (OceanBase extension).
+type AlterOutlineStmt struct {
+	ddlNode
+
+	Name  string
+	OnSQL string
+}
+
+// Restore implements Node interface.
+func (n *AlterOutlineStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("ALTER OUTLINE ")
+	ctx.WriteName(n.Name)
+	ctx.WriteKeyWord(" CONCURRENTLY ON ")
+	ctx.WriteString(n.OnSQL)
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *AlterOutlineStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*AlterOutlineStmt)
+	return v.Leave(n)
+}
+
+// DropOutlineStmt is a statement to drop an outline (OceanBase extension).
+type DropOutlineStmt struct {
+	ddlNode
+
+	Name string
+}
+
+// Restore implements Node interface.
+func (n *DropOutlineStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("DROP OUTLINE ")
+	ctx.WriteName(n.Name)
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *DropOutlineStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*DropOutlineStmt)
+	return v.Leave(n)
+}
+
+// PurgeObjectType is the object type for PURGE statement (OceanBase extension).
+type PurgeObjectType int
+
+const (
+	PurgeRecyclebin  PurgeObjectType = iota
+	PurgeTenant
+	PurgeDatabase
+	PurgeTable
+	PurgeIndex
+)
+
+// PurgeStmt is a statement to delete objects from the recycle bin (OceanBase extension).
+type PurgeStmt struct {
+	ddlNode
+
+	ObjectType PurgeObjectType
+	ObjectName string
+}
+
+// Restore implements Node interface.
+func (n *PurgeStmt) Restore(ctx *format.RestoreCtx) error {
+	switch n.ObjectType {
+	case PurgeRecyclebin:
+		ctx.WriteKeyWord("PURGE RECYCLEBIN")
+	case PurgeTenant:
+		ctx.WriteKeyWord("PURGE TENANT ")
+		ctx.WritePlain(n.ObjectName)
+	case PurgeDatabase:
+		ctx.WriteKeyWord("PURGE DATABASE ")
+		ctx.WritePlain(n.ObjectName)
+	case PurgeTable:
+		ctx.WriteKeyWord("PURGE TABLE ")
+		ctx.WritePlain(n.ObjectName)
+	case PurgeIndex:
+		ctx.WriteKeyWord("PURGE INDEX ")
+		ctx.WritePlain(n.ObjectName)
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *PurgeStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*PurgeStmt)
+	return v.Leave(n)
+}
+
+// MVRefreshType is the refresh type for materialized view.
+type MVRefreshType int
+
+const (
+	MVRefreshForce    MVRefreshType = iota // FORCE (default)
+	MVRefreshComplete                       // COMPLETE
+	MVRefreshFast                           // FAST
+	MVRefreshNever                          // NEVER REFRESH
+)
+
+// MVRefreshClause contains refresh options for a materialized view.
+type MVRefreshClause struct {
+	node
+	RefreshType MVRefreshType
+	StartWith   ExprNode // START WITH expr
+	Next        ExprNode // NEXT expr
+	OnDemand    bool
+}
+
+// Restore implements Node interface.
+func (n *MVRefreshClause) Restore(ctx *format.RestoreCtx) error {
+	if n.RefreshType == MVRefreshNever {
+		ctx.WriteKeyWord("NEVER REFRESH")
+		return nil
+	}
+	ctx.WriteKeyWord("REFRESH ")
+	switch n.RefreshType {
+	case MVRefreshComplete:
+		ctx.WriteKeyWord("COMPLETE ")
+	case MVRefreshFast:
+		ctx.WriteKeyWord("FAST ")
+	default:
+		ctx.WriteKeyWord("FORCE ")
+	}
+	if n.OnDemand {
+		ctx.WriteKeyWord("ON DEMAND ")
+	}
+	if n.StartWith != nil {
+		ctx.WriteKeyWord("START WITH ")
+		if err := n.StartWith.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore MVRefreshClause.StartWith")
+		}
+		ctx.WritePlain(" ")
+	}
+	if n.Next != nil {
+		ctx.WriteKeyWord("NEXT ")
+		if err := n.Next.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore MVRefreshClause.Next")
+		}
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *MVRefreshClause) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*MVRefreshClause)
+	if n.StartWith != nil {
+		node, ok := n.StartWith.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.StartWith = node.(ExprNode)
+	}
+	if n.Next != nil {
+		node, ok := n.Next.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Next = node.(ExprNode)
+	}
+	return v.Leave(n)
+}
+
+// CreateMaterializedViewStmt is a statement to create a materialized view (OceanBase extension).
+type CreateMaterializedViewStmt struct {
+	ddlNode
+
+	ViewName         *TableName
+	Cols             []*ColumnDef
+	Options          []*TableOption
+	Partition        *PartitionOptions
+	RefreshClause    *MVRefreshClause
+	QueryRewrite     bool // ENABLE QUERY REWRITE
+	OnQueryCompute   bool // ENABLE ON QUERY COMPUTATION
+	Select           ResultSetNode
+}
+
+// Restore implements Node interface.
+func (n *CreateMaterializedViewStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("CREATE MATERIALIZED VIEW ")
+	if err := n.ViewName.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore CreateMaterializedViewStmt.ViewName")
+	}
+	if n.RefreshClause != nil {
+		ctx.WritePlain(" ")
+		if err := n.RefreshClause.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore CreateMaterializedViewStmt.RefreshClause")
+		}
+	}
+	if n.QueryRewrite {
+		ctx.WriteKeyWord(" ENABLE QUERY REWRITE")
+	}
+	if n.OnQueryCompute {
+		ctx.WriteKeyWord(" ENABLE ON QUERY COMPUTATION")
+	}
+	ctx.WriteKeyWord(" AS ")
+	if err := n.Select.(Node).Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore CreateMaterializedViewStmt.Select")
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *CreateMaterializedViewStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*CreateMaterializedViewStmt)
+	if n.ViewName != nil {
+		node, ok := n.ViewName.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.ViewName = node.(*TableName)
+	}
+	if n.RefreshClause != nil {
+		node, ok := n.RefreshClause.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.RefreshClause = node.(*MVRefreshClause)
+	}
+	if n.Select != nil {
+		node, ok := n.Select.(Node).Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Select = node.(ResultSetNode)
+	}
+	return v.Leave(n)
+}
+
+// AlterMaterializedViewStmt is a statement to alter a materialized view (OceanBase extension).
+type AlterMaterializedViewStmt struct {
+	ddlNode
+
+	ViewName      *TableName
+	RefreshClause *MVRefreshClause
+}
+
+// Restore implements Node interface.
+func (n *AlterMaterializedViewStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("ALTER MATERIALIZED VIEW ")
+	if err := n.ViewName.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore AlterMaterializedViewStmt.ViewName")
+	}
+	if n.RefreshClause != nil {
+		ctx.WritePlain(" ")
+		if err := n.RefreshClause.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore AlterMaterializedViewStmt.RefreshClause")
+		}
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *AlterMaterializedViewStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*AlterMaterializedViewStmt)
+	if n.ViewName != nil {
+		node, ok := n.ViewName.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.ViewName = node.(*TableName)
+	}
+	return v.Leave(n)
+}
+
+// DropMaterializedViewStmt is a statement to drop a materialized view (OceanBase extension).
+type DropMaterializedViewStmt struct {
+	ddlNode
+
+	IfExists bool
+	Views    []*TableName
+}
+
+// Restore implements Node interface.
+func (n *DropMaterializedViewStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("DROP MATERIALIZED VIEW ")
+	if n.IfExists {
+		ctx.WriteKeyWord("IF EXISTS ")
+	}
+	for i, v := range n.Views {
+		if i != 0 {
+			ctx.WritePlain(", ")
+		}
+		if err := v.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while restore DropMaterializedViewStmt.Views[%d]", i)
+		}
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *DropMaterializedViewStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*DropMaterializedViewStmt)
+	for i, view := range n.Views {
+		node, ok := view.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Views[i] = node.(*TableName)
+	}
+	return v.Leave(n)
+}
+
+// CreateRestorePointStmt creates a restore point (OceanBase extension).
+type CreateRestorePointStmt struct {
+	ddlNode
+	Name string
+}
+
+// Restore implements Node interface.
+func (n *CreateRestorePointStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("CREATE RESTORE POINT ")
+	ctx.WriteName(n.Name)
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *CreateRestorePointStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*CreateRestorePointStmt)
+	return v.Leave(n)
+}
+
+// DropRestorePointStmt drops a restore point (OceanBase extension).
+type DropRestorePointStmt struct {
+	ddlNode
+	Name string
+}
+
+// Restore implements Node interface.
+func (n *DropRestorePointStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("DROP RESTORE POINT ")
+	ctx.WriteName(n.Name)
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *DropRestorePointStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*DropRestorePointStmt)
+	return v.Leave(n)
+}
+
+// CreateDBLinkStmt is a statement to create a database link (OceanBase extension).
+type CreateDBLinkStmt struct {
+	ddlNode
+
+	Name     string
+	User     string
+	Tenant   string
+	Password string
+	Host     string
+	Cluster  string
+}
+
+// Restore implements Node interface.
+func (n *CreateDBLinkStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("CREATE DATABASE LINK ")
+	ctx.WriteName(n.Name)
+	ctx.WriteKeyWord(" CONNECT TO ")
+	ctx.WritePlain(n.User)
+	if n.Tenant != "" {
+		ctx.WritePlain("@")
+		ctx.WritePlain(n.Tenant)
+	}
+	ctx.WriteKeyWord(" IDENTIFIED BY ")
+	ctx.WriteString(n.Password)
+	if n.Host != "" {
+		ctx.WriteKeyWord(" HOST ")
+		ctx.WriteString(n.Host)
+	}
+	if n.Cluster != "" {
+		ctx.WriteKeyWord(" CLUSTER ")
+		ctx.WritePlain(n.Cluster)
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *CreateDBLinkStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*CreateDBLinkStmt)
+	return v.Leave(n)
+}
+
+// DropDBLinkStmt is a statement to drop a database link (OceanBase extension).
+type DropDBLinkStmt struct {
+	ddlNode
+
+	Name string
+}
+
+// Restore implements Node interface.
+func (n *DropDBLinkStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("DROP DATABASE LINK ")
+	ctx.WriteName(n.Name)
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *DropDBLinkStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*DropDBLinkStmt)
 	return v.Leave(n)
 }
