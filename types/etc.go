@@ -75,6 +75,7 @@ var type2Str = map[byte]string{
 	mysql.TypeMultiLineString:    "multilinestring",
 	mysql.TypeMultiPolygon:       "multipolygon",
 	mysql.TypeGeometryCollection: "geometrycollection",
+	mysql.TypeVector:             "vector",
 }
 
 // TypeStr converts tp to a string.

@@ -30,6 +30,7 @@ var (
 	_ DMLNode = &SelectStmt{}
 	_ DMLNode = &ShowStmt{}
 	_ DMLNode = &LoadDataStmt{}
+	_ DMLNode = &ImportIntoStmt{}
 	_ DMLNode = &SplitRegionStmt{}
 
 	_ Node = &Assignment{}
@@ -387,6 +388,9 @@ type TableSource struct {
 
 	// AsName is the alias name of the table source.
 	AsName model.CIStr
+
+	// Lateral indicates a LATERAL derived table (MySQL 8.0 / TiDB 8.5.7+ parse-only).
+	Lateral bool
 }
 
 // JsonTableColumn represents one COLUMNS entry of JSON_TABLE.
@@ -481,6 +485,10 @@ func (n *TableSource) Restore(ctx *format.RestoreCtx) error {
 		needParen = true
 	}
 
+	if n.Lateral {
+		ctx.WriteKeyWord("LATERAL ")
+	}
+
 	if tn, tnCase := n.Source.(*TableName); tnCase {
 		if needParen {
 			ctx.WritePlain("(")
@@ -544,6 +552,13 @@ const (
 	SelectLockInShareMode
 	SelectLockForUpdateNoWait
 )
+
+// SelectLockOption is the parsed FOR UPDATE / LOCK IN SHARE MODE clause,
+// optionally with OF table-name list (TiDB 8.5.6+).
+type SelectLockOption struct {
+	LockTp SelectLockType
+	Tables []*TableName
+}
 
 // String implements fmt.Stringer.
 func (slt SelectLockType) String() string {
@@ -966,6 +981,8 @@ type SelectStmt struct {
 	Limit *Limit
 	// LockTp is the lock type
 	LockTp SelectLockType
+	// LockTables is the optional OF table list for FOR UPDATE OF ...
+	LockTables []*TableName
 	// TableHints represents the table level Optimizer Hint for join type
 	TableHints []*TableOptimizerHint
 	// IsAfterUnionDistinct indicates whether it's a stmt after "union distinct".
@@ -1102,7 +1119,21 @@ func (n *SelectStmt) Restore(ctx *format.RestoreCtx) error {
 		ctx.WriteKeyWord(n.LockTp.String())
 	case SelectLockForUpdate, SelectLockForUpdateNoWait:
 		ctx.WritePlain(" ")
-		ctx.WriteKeyWord(n.LockTp.String())
+		ctx.WriteKeyWord("FOR UPDATE")
+		if len(n.LockTables) > 0 {
+			ctx.WriteKeyWord(" OF ")
+			for i, tn := range n.LockTables {
+				if i > 0 {
+					ctx.WritePlain(",")
+				}
+				if err := tn.Restore(ctx); err != nil {
+					return errors.Annotatef(err, "An error occurred while restore SelectStmt.LockTables[%d]", i)
+				}
+			}
+		}
+		if n.LockTp == SelectLockForUpdateNoWait {
+			ctx.WriteKeyWord(" NOWAIT")
+		}
 	}
 
 	if n.SelectIntoOpt != nil {
@@ -1375,6 +1406,64 @@ func (n *Assignment) Accept(v Visitor) (Node, bool) {
 type ColumnNameOrUserVar struct {
 	ColumnName *ColumnName
 	UserVar    *VariableExpr
+}
+
+// ImportIntoStmt represents TiDB IMPORT INTO (Lightning physical import).
+// Minimal positive forms for SQLE parse/restore; options / FROM SELECT land in later slices.
+// See https://docs.pingcap.com/tidb/stable/sql-statement-import-into/
+type ImportIntoStmt struct {
+	dmlNode
+
+	Table   *TableName
+	Columns []*ColumnName
+	Path    string
+}
+
+// Restore implements Node interface.
+func (n *ImportIntoStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("IMPORT INTO ")
+	if err := n.Table.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore ImportIntoStmt.Table")
+	}
+	if len(n.Columns) != 0 {
+		ctx.WritePlain(" (")
+		for i, col := range n.Columns {
+			if i != 0 {
+				ctx.WritePlain(",")
+			}
+			if err := col.Restore(ctx); err != nil {
+				return errors.Annotatef(err, "An error occurred while restore ImportIntoStmt.Columns[%d]", i)
+			}
+		}
+		ctx.WritePlain(")")
+	}
+	ctx.WriteKeyWord(" FROM ")
+	ctx.WriteString(n.Path)
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *ImportIntoStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*ImportIntoStmt)
+	if n.Table != nil {
+		node, ok := n.Table.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Table = node.(*TableName)
+	}
+	for i, col := range n.Columns {
+		node, ok := col.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Columns[i] = node.(*ColumnName)
+	}
+	return v.Leave(n)
 }
 
 // LoadDataStmt is a statement to load data from a specified file, then insert this rows into an existing table.
@@ -2137,6 +2226,7 @@ const (
 	ShowBackups
 	ShowRestores
 	ShowImports
+	ShowAffinity
 )
 
 const (
@@ -2439,6 +2529,8 @@ func (n *ShowStmt) Restore(ctx *format.RestoreCtx) error {
 			ctx.WriteKeyWord("RESTORES")
 		case ShowImports:
 			ctx.WriteKeyWord("IMPORTS")
+		case ShowAffinity:
+			ctx.WriteKeyWord("AFFINITY")
 		default:
 			return errors.New("Unknown ShowStmt type")
 		}

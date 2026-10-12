@@ -603,6 +603,8 @@ type IndexOption struct {
 	Comment      string
 	ParserName   model.CIStr
 	Visibility   IndexVisibility
+	// Condition is the partial-index predicate (CREATE/ALTER INDEX ... WHERE ...).
+	Condition ExprNode
 }
 
 // Restore implements Node interface.
@@ -651,6 +653,16 @@ func (n *IndexOption) Restore(ctx *format.RestoreCtx) error {
 		case IndexVisibilityInvisible:
 			ctx.WriteKeyWord("INVISIBLE")
 		}
+		hasPrevOption = true
+	}
+	if n.Condition != nil {
+		if hasPrevOption {
+			ctx.WritePlain(" ")
+		}
+		ctx.WriteKeyWord("WHERE ")
+		if err := n.Condition.Restore(ctx); err != nil {
+			return errors.Annotate(err, "An error occurred while restore IndexOption.Condition")
+		}
 	}
 	return nil
 }
@@ -662,6 +674,13 @@ func (n *IndexOption) Accept(v Visitor) (Node, bool) {
 		return v.Leave(newNode)
 	}
 	n = newNode.(*IndexOption)
+	if n.Condition != nil {
+		node, ok := n.Condition.Accept(v)
+		if !ok {
+			return n, false
+		}
+		n.Condition = node.(ExprNode)
+	}
 	return v.Leave(n)
 }
 
@@ -1761,6 +1780,8 @@ const (
 	TableOptionTableCheckSum
 	TableOptionUnion
 	TableOptionEncryption
+	// TableOptionAffinity is TiDB AFFINITY = 'table'|'partition'|'none' (v8.5.5+).
+	TableOptionAffinity
 )
 
 // RowFormat types
@@ -2003,6 +2024,10 @@ func (n *TableOption) Restore(ctx *format.RestoreCtx) error {
 		ctx.WritePlain(")")
 	case TableOptionEncryption:
 		ctx.WriteKeyWord("ENCRYPTION ")
+		ctx.WritePlain("= ")
+		ctx.WriteString(n.StrValue)
+	case TableOptionAffinity:
+		ctx.WriteKeyWord("AFFINITY ")
 		ctx.WritePlain("= ")
 		ctx.WriteString(n.StrValue)
 	default:

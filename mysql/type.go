@@ -54,6 +54,8 @@ const (
 	TypeMultiLineString    byte = 0xEa
 	TypeMultiPolygon       byte = 0xEb
 	TypeGeometryCollection byte = 0xEc
+	// TypeVector is TiDB VECTOR / VECTOR(n) (v8.4+). Custom codepoint after geometry family.
+	TypeVector byte = 0xEd
 )
 
 // TypeUnspecified is an uninitialized type. TypeDecimal is not used in MySQL.

@@ -284,6 +284,7 @@ import (
 	action                "ACTION"
 	advise                "ADVISE"
 	after                 "AFTER"
+	affinity              "AFFINITY"
 	against               "AGAINST"
 	ago                   "AGO"
 	algorithm             "ALGORITHM"
@@ -410,10 +411,12 @@ import (
 	issuer                "ISSUER"
 	jsonType              "JSON"
 	jsonTable             "JSON_TABLE"
+	vectorType            "VECTOR"
 	keyBlockSize          "KEY_BLOCK_SIZE"
 	labels                "LABELS"
 	language              "LANGUAGE"
 	last                  "LAST"
+	lateral               "LATERAL"
 	lastBackup            "LAST_BACKUP"
 	lastval               "LASTVAL"
 	less                  "LESS"
@@ -456,6 +459,7 @@ import (
 	nowait                "NOWAIT"
 	nvarcharType          "NVARCHAR"
 	nulls                 "NULLS"
+	of                    "OF"
 	offset                "OFFSET"
 	onDuplicate           "ON_DUPLICATE"
 	online                "ONLINE"
@@ -817,6 +821,7 @@ import (
 	InsertIntoStmt       "INSERT INTO statement"
 	IndexAdviseStmt      "INDEX ADVISE stetement"
 	KillStmt             "Kill statement"
+	ImportIntoStmt       "Import into statement"
 	LoadDataStmt         "Load data statement"
 	LoadStatsStmt        "Load statistic statement"
 	LockTablesStmt       "Lock tables statement"
@@ -2955,6 +2960,11 @@ DefaultValueExpr:
 	NowSymOptionFraction
 |	SignedLiteral
 |	NextValueForSequence
+|	'(' Expression ')'
+	{
+		// MySQL 8.0.13+ / TiDB 8.5 expression defaults: DEFAULT (expr).
+		$$ = &ast.ParenthesesExpr{Expr: $2}
+	}
 
 NowSymOptionFraction:
 	NowSym
@@ -4874,6 +4884,8 @@ IndexOptionList:
 				opt1.ParserName = opt2.ParserName
 			} else if opt2.Visibility != ast.IndexVisibilityDefault {
 				opt1.Visibility = opt2.Visibility
+			} else if opt2.Condition != nil {
+				opt1.Condition = opt2.Condition
 			}
 			$$ = opt1
 		}
@@ -4910,6 +4922,12 @@ IndexOption:
 	{
 		$$ = &ast.IndexOption{
 			Visibility: $1.(ast.IndexVisibility),
+		}
+	}
+|	"WHERE" Expression
+	{
+		$$ = &ast.IndexOption{
+			Condition: $2.(ast.ExprNode),
 		}
 	}
 
@@ -5125,6 +5143,8 @@ UnReservedKeyword:
 |	"ISOLATION"
 |	"JSON"
 |	"JSON_TABLE"
+|	"VECTOR"
+|	"AFFINITY"
 |	"REPEATABLE"
 |	"RESPECT"
 |	"COMMITTED"
@@ -6850,6 +6870,15 @@ CastType:
 		x.Collate = mysql.DefaultCollationName
 		$$ = x
 	}
+|	"VECTOR" OptFieldLen
+	{
+		x := types.NewFieldType(mysql.TypeVector)
+		x.Flen = $2.(int)
+		x.Flag |= mysql.BinaryFlag
+		x.Charset = charset.CharsetBin
+		x.Collate = charset.CollationBin
+		$$ = x
+	}
 |	"DOUBLE"
 	{
 		x := types.NewFieldType(mysql.TypeDouble)
@@ -7206,7 +7235,9 @@ SelectStmt:
 	SelectStmtBasic OrderByOptional SelectStmtLimit SelectLockOpt SelectStmtIntoOption
 	{
 		st := $1.(*ast.SelectStmt)
-		st.LockTp = $4.(ast.SelectLockType)
+		lockOpt := $4.(*ast.SelectLockOption)
+		st.LockTp = lockOpt.LockTp
+		st.LockTables = lockOpt.Tables
 		lastField := st.Fields.Fields[len(st.Fields.Fields)-1]
 		if lastField.Expr != nil && lastField.AsName.O == "" {
 			src := parser.src
@@ -7215,7 +7246,7 @@ SelectStmt:
 				lastEnd = yyS[yypt-3].offset - 1
 			} else if $3 != nil {
 				lastEnd = yyS[yypt-2].offset - 1
-			} else if $4 != ast.SelectLockNone {
+			} else if lockOpt.LockTp != ast.SelectLockNone {
 				lastEnd = yyS[yypt-1].offset - 1
 			} else if $5 != nil {
 				lastEnd = yyS[yypt].offset - 1
@@ -7247,7 +7278,9 @@ SelectStmt:
 		if $3 != nil {
 			st.Limit = $3.(*ast.Limit)
 		}
-		st.LockTp = $4.(ast.SelectLockType)
+		lockOpt := $4.(*ast.SelectLockOption)
+		st.LockTp = lockOpt.LockTp
+		st.LockTables = lockOpt.Tables
 		if $5 != nil {
 			st.SelectIntoOpt = $5.(*ast.SelectIntoOption)
 		}
@@ -7256,7 +7289,9 @@ SelectStmt:
 |	SelectStmtFromTable OrderByOptional SelectStmtLimit SelectLockOpt SelectStmtIntoOption
 	{
 		st := $1.(*ast.SelectStmt)
-		st.LockTp = $4.(ast.SelectLockType)
+		lockOpt := $4.(*ast.SelectLockOption)
+		st.LockTp = lockOpt.LockTp
+		st.LockTables = lockOpt.Tables
 		if $2 != nil {
 			st.OrderBy = $2.(*ast.OrderByClause)
 		}
@@ -7649,9 +7684,20 @@ TableFactor:
 		parser.setLastSelectFieldText(st, endOffset)
 		$$ = &ast.TableSource{Source: $2.(*ast.SelectStmt), AsName: $4.(model.CIStr)}
 	}
+|	"LATERAL" '(' SelectStmt ')' TableAsName
+	{
+		st := $3.(*ast.SelectStmt)
+		endOffset := parser.endOffset(&yyS[yypt-1])
+		parser.setLastSelectFieldText(st, endOffset)
+		$$ = &ast.TableSource{Source: st, AsName: $5.(model.CIStr), Lateral: true}
+	}
 |	'(' UnionStmt ')' TableAsName
 	{
 		$$ = &ast.TableSource{Source: $2.(*ast.UnionStmt), AsName: $4.(model.CIStr)}
+	}
+|	"LATERAL" '(' UnionStmt ')' TableAsName
+	{
+		$$ = &ast.TableSource{Source: $3.(*ast.UnionStmt), AsName: $5.(model.CIStr), Lateral: true}
 	}
 |	'(' TableRefs ')'
 	{
@@ -8073,22 +8119,31 @@ SubSelect:
 	}
 
 // See https://dev.mysql.com/doc/refman/5.7/en/innodb-locking-reads.html
+// TiDB 8.5.6+: FOR UPDATE OF table_alias [, ...]
 SelectLockOpt:
 	/* empty */
 	{
-		$$ = ast.SelectLockNone
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockNone}
 	}
 |	"FOR" "UPDATE"
 	{
-		$$ = ast.SelectLockForUpdate
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdate}
+	}
+|	"FOR" "UPDATE" "OF" TableNameList
+	{
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdate, Tables: $4.([]*ast.TableName)}
 	}
 |	"FOR" "UPDATE" "NOWAIT"
 	{
-		$$ = ast.SelectLockForUpdateNoWait
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdateNoWait}
+	}
+|	"FOR" "UPDATE" "OF" TableNameList "NOWAIT"
+	{
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockForUpdateNoWait, Tables: $4.([]*ast.TableName)}
 	}
 |	"LOCK" "IN" "SHARE" "MODE"
 	{
-		$$ = ast.SelectLockInShareMode
+		$$ = &ast.SelectLockOption{LockTp: ast.SelectLockInShareMode}
 	}
 
 IdentListWithParenOpt:
@@ -8198,7 +8253,9 @@ UnionStmtNoWith:
 			union.Limit = $6.(*ast.Limit)
 		}
 		if $5 == nil && $6 == nil {
-			st.LockTp = $7.(ast.SelectLockType)
+			lockOpt := $7.(*ast.SelectLockOption)
+			st.LockTp = lockOpt.LockTp
+			st.LockTables = lockOpt.Tables
 		}
 		$$ = union
 	}
@@ -8218,7 +8275,9 @@ UnionStmtNoWith:
 			union.Limit = $6.(*ast.Limit)
 		}
 		if $5 == nil && $6 == nil {
-			st.LockTp = $7.(ast.SelectLockType)
+			lockOpt := $7.(*ast.SelectLockOption)
+			st.LockTp = lockOpt.LockTp
+			st.LockTables = lockOpt.Tables
 		}
 		$$ = union
 	}
@@ -8238,7 +8297,9 @@ UnionStmtNoWith:
 			union.Limit = $6.(*ast.Limit)
 		}
 		if $5 == nil && $6 == nil {
-			st.LockTp = $7.(ast.SelectLockType)
+			lockOpt := $7.(*ast.SelectLockOption)
+			st.LockTp = lockOpt.LockTp
+			st.LockTables = lockOpt.Tables
 		}
 		$$ = union
 	}
@@ -9398,6 +9459,10 @@ ShowTargetFilterable:
 	{
 		$$ = &ast.ShowStmt{Tp: ast.ShowImports}
 	}
+|	"AFFINITY"
+	{
+		$$ = &ast.ShowStmt{Tp: ast.ShowAffinity}
+	}
 
 ShowLikeOrWhereOpt:
 	{
@@ -9611,6 +9676,7 @@ Statement:
 |	GrantStmt
 |	GrantRoleStmt
 |	InsertIntoStmt
+|	ImportIntoStmt
 |	IndexAdviseStmt
 |	KillStmt
 |	LoadDataStmt
@@ -9916,6 +9982,10 @@ TableOption:
 	{
 		// Parse it but will ignore it
 		$$ = &ast.TableOption{Tp: ast.TableOptionEncryption, StrValue: $3}
+	}
+|	"AFFINITY" EqOpt stringLit
+	{
+		$$ = &ast.TableOption{Tp: ast.TableOptionAffinity, StrValue: $3}
 	}
 
 StatsPersistentVal:
@@ -10322,6 +10392,15 @@ StringType:
 	{
 		x := types.NewFieldType(mysql.TypeJSON)
 		x.Decimal = 0
+		x.Charset = charset.CharsetBin
+		x.Collate = charset.CollationBin
+		$$ = x
+	}
+|	"VECTOR" OptFieldLen
+	{
+		// TiDB VECTOR / VECTOR(n); Flen holds dimension when specified.
+		x := types.NewFieldType(mysql.TypeVector)
+		x.Flen = $2.(int)
 		x.Charset = charset.CharsetBin
 		x.Collate = charset.CollationBin
 		$$ = x
@@ -11512,6 +11591,27 @@ RevokeRoleStmt:
 		$$ = &ast.RevokeRoleStmt{
 			Roles: $2.([]*auth.RoleIdentity),
 			Users: $4.([]*auth.UserIdentity),
+		}
+	}
+
+/**************************************ImportIntoStmt****************************************
+ * TiDB IMPORT INTO — see https://docs.pingcap.com/tidb/stable/sql-statement-import-into/
+ * Minimal positive forms for parse/restore (options / FROM SELECT deferred).
+ *******************************************************************************************/
+ImportIntoStmt:
+	"IMPORT" "INTO" TableName "FROM" stringLit
+	{
+		$$ = &ast.ImportIntoStmt{
+			Table: $3.(*ast.TableName),
+			Path:  $5,
+		}
+	}
+|	"IMPORT" "INTO" TableName '(' ColumnNameList ')' "FROM" stringLit
+	{
+		$$ = &ast.ImportIntoStmt{
+			Table:   $3.(*ast.TableName),
+			Columns: $5.([]*ast.ColumnName),
+			Path:    $8,
 		}
 	}
 
